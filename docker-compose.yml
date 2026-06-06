@@ -1,0 +1,11 @@
+services:
+  research-copilot:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      RC_DATA_DIR: /app/data
+      RC_OLLAMA_HOST: http://host.docker.internal:11434
+      RC_OLLAMA_MODEL: qwen3:8b
+    volumes:
+      - ./data:/app/data

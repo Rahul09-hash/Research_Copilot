@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Research Copilot</title>
+    <link rel="stylesheet" href="/web/app.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">RC</div>
+        <div>
+          <h1>Research Copilot</h1>
+          <p>Local workspace</p>
+        </div>
+      </div>
+      <label class="theme-toggle">
+        <span>Dark mode</span>
+        <input id="themeToggle" type="checkbox" />
+      </label>
+
+      <label class="field-label" for="workspaceSelect">Workspace</label>
+      <select id="workspaceSelect"></select>
+      <div class="row">
+        <input id="workspaceName" placeholder="New workspace" />
+        <button id="addWorkspaceBtn" title="Create workspace">+</button>
+      </div>
+
+      <label class="field-label" for="chatSelect">Chat</label>
+      <select id="chatSelect"></select>
+      <div class="row">
+        <input id="chatTitle" placeholder="New chat" />
+        <button id="addChatBtn" title="Create chat">+</button>
+      </div>
+
+      <nav class="nav">
+        <button class="active" data-view="chat">Chat</button>
+        <button data-view="documents">Documents</button>
+        <button data-view="notes">Notes</button>
+        <button data-view="graph">Graph</button>
+        <button data-view="exports">Exports</button>
+      </nav>
+
+      <div class="status">
+        <div><span>Embeddings</span><strong id="embeddingStatus">...</strong></div>
+        <div><span>Reranker</span><strong id="rerankerStatus">...</strong></div>
+        <div><span>Model</span><strong id="modelStatus">...</strong></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section id="chatView" class="view active">
+        <div class="chat-head">
+          <div>
+            <h2>Chat</h2>
+            <p id="chatHint">Ask questions grounded in uploaded PDFs.</p>
+          </div>
+          <button id="refreshMessagesBtn">Refresh</button>
+        </div>
+        <div id="messages" class="messages"></div>
+        <form id="chatForm" class="composer">
+          <textarea id="promptInput" rows="2" placeholder="Ask about your research..."></textarea>
+          <button id="sendBtn" type="submit">Send</button>
+        </form>
+      </section>
+
+      <section id="documentsView" class="view">
+        <div class="panel-head">
+          <div>
+            <h2>Documents</h2>
+            <p>Upload PDFs for local retrieval and citations.</p>
+          </div>
+          <label class="file-btn">
+            Upload PDF
+            <input id="pdfInput" type="file" accept="application/pdf" multiple />
+          </label>
+        </div>
+        <div id="uploadStatus" class="muted"></div>
+        <div id="documentsList" class="list"></div>
+      </section>
+
+      <section id="notesView" class="view">
+        <div class="panel-head">
+          <div>
+            <h2>Notes</h2>
+            <p>Private notes tied to the current chat.</p>
+          </div>
+        </div>
+        <form id="noteForm" class="note-form">
+          <input id="noteTitle" placeholder="Title" />
+          <textarea id="noteBody" rows="5" placeholder="Write a note..."></textarea>
+          <button type="submit">Save note</button>
+        </form>
+        <div id="notesList" class="list"></div>
+      </section>
+
+      <section id="graphView" class="view">
+        <div class="panel-head">
+          <div>
+            <h2>Knowledge Graph</h2>
+            <p>Generated from document entities.</p>
+          </div>
+          <button id="regenerateGraphBtn">Regenerate</button>
+        </div>
+        <iframe id="graphFrame" title="Knowledge graph"></iframe>
+        <div id="graphEmpty" class="empty hidden">Upload PDFs before generating a graph.</div>
+      </section>
+
+      <section id="exportsView" class="view">
+        <div class="panel-head">
+          <div>
+            <h2>Exports</h2>
+            <p>Save the current chat or create research drafts.</p>
+          </div>
+        </div>
+        <div class="button-grid">
+          <button data-export="markdown">Export Markdown</button>
+          <button data-export="docx">Export DOCX</button>
+          <button data-export="pdf">Export PDF</button>
+          <button id="literatureBtn">Literature Review</button>
+        </div>
+        <div class="compare-box">
+          <select id="compareA"></select>
+          <select id="compareB"></select>
+          <button id="compareBtn">Compare Documents</button>
+        </div>
+        <div id="exportResult" class="result"></div>
+      </section>
+    </main>
+
+    <script src="/web/app.js"></script>
+  </body>
+</html>
