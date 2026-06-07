@@ -63,6 +63,7 @@ class RAGEngine:
                 "role": "system",
                 "content": (
                     "You are Research Copilot, a local research assistant. Answer ONLY from the supplied context. "
+                    "CRITICAL: You MUST use proper Markdown formatting. Break your answer into logical sections using headings (e.g. ## Heading) and separate paragraphs with clear line breaks. "
                     "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
                     "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
                     "If the context is insufficient, say so. "

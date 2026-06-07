@@ -339,7 +339,7 @@ async def export_chat(request: Request) -> JSONResponse:
     if exporter is None:
         return JSONResponse({"error": "Unknown export type."}, status_code=404)
     path = await run_in_threadpool(exporter, services.settings, services.db, chat_id)
-    return JSONResponse({"path": str(path)})
+    return FileResponse(path, filename=path.name, content_disposition_type="attachment")
 
 
 async def not_found(_request: Request) -> PlainTextResponse:

@@ -471,8 +471,53 @@ async function loadGraph(regenerate) {
 }
 
 async function exportChat(kind) {
-  const result = await api(`/api/export/${kind}?chat_id=${state.chatId}`, { method: "POST" });
-  el("exportResult").textContent = `Saved: ${result.path}`;
+  if (kind === "pdf") {
+    // Save current active view
+    const activeView = document.querySelector(".view.active");
+    const activeViewId = activeView ? activeView.id : "chatView";
+    
+    // Switch to Chat View for printing
+    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+    el("chatView").classList.add("active");
+    
+    // Allow DOM to update before triggering print dialog
+    setTimeout(() => {
+      window.print();
+      
+      // Restore previous view after print dialog closes
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      if (el(activeViewId)) {
+        el(activeViewId).classList.add("active");
+      }
+    }, 100);
+    return;
+  }
+
+  el("exportResult").textContent = `Generating ${kind} export...`;
+  try {
+    const response = await fetch(`/api/export/${kind}?chat_id=${state.chatId}`, { method: "POST" });
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.statusText}`);
+    }
+    
+    const contentDisposition = response.headers.get("Content-Disposition") || "";
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `export.${kind}`;
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    
+    el("exportResult").textContent = "Download complete!";
+  } catch (err) {
+    el("exportResult").textContent = err.message;
+  }
 }
 
 async function loadExportDocuments() {
@@ -564,7 +609,9 @@ function renderMathAwareText(text) {
 }
 
 function renderTextBlocks(text) {
-  return text
+  // Ensure headings have double newlines around them so they break into separate blocks
+  const spacedText = text.replace(/^([ \t]*#{1,4}[ \t]+.+)$/gm, "\n\n$1\n\n");
+  return spacedText
     .split(/\n{2,}/)
     .map((block) => renderTextBlock(block))
     .join("");
