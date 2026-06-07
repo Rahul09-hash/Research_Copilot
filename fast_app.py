@@ -213,6 +213,17 @@ async def reprocess_pdf(request: Request) -> JSONResponse:
     )
 
 
+async def delete_pdf(request: Request) -> JSONResponse:
+    services = get_services()
+    document_id = int(request.path_params["document_id"])
+
+    def _do_delete():
+        services.vector_store.delete_chunks_for_document(document_id)
+        services.db.delete_document(document_id)
+
+    await run_in_threadpool(_do_delete)
+    return JSONResponse({"status": "deleted"})
+
 async def notes(request: Request) -> JSONResponse:
     services = get_services()
     if request.method == "GET":
@@ -292,6 +303,7 @@ routes = [
     Route("/api/documents", documents, methods=["GET"]),
     Route("/api/documents/{document_id:int}/pdf", document_pdf, methods=["GET"]),
     Route("/api/documents/{document_id:int}/reprocess", reprocess_pdf, methods=["POST"]),
+    Route("/api/documents/{document_id:int}", delete_pdf, methods=["DELETE"]),
     Route("/api/upload", upload_pdf, methods=["POST"]),
     Route("/api/notes", notes, methods=["GET", "POST"]),
     Route("/api/graph", graph, methods=["GET"]),

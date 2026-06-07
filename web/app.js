@@ -303,6 +303,7 @@ async function loadDocuments() {
       <div class="card-actions">
         <a href="/api/documents/${doc.id}/pdf" target="_blank" rel="noopener">Open PDF</a>
         <button data-reprocess="${doc.id}">Reprocess</button>
+        <button class="danger" data-delete="${doc.id}">Delete</button>
       </div>
     `;
     list.append(card);
@@ -310,6 +311,21 @@ async function loadDocuments() {
   document.querySelectorAll("[data-reprocess]").forEach((button) => {
     button.addEventListener("click", () => reprocessDocument(button.dataset.reprocess));
   });
+  document.querySelectorAll("[data-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteDocument(button.dataset.delete));
+  });
+}
+
+async function deleteDocument(documentId) {
+  if (!window.confirm("Are you sure you want to delete this PDF? This action cannot be undone.")) {
+    return;
+  }
+  setBusy(true);
+  el("uploadStatus").textContent = "Deleting PDF...";
+  await api(`/api/documents/${documentId}`, { method: "DELETE" });
+  el("uploadStatus").textContent = "PDF deleted successfully.";
+  await loadDocuments();
+  setBusy(false);
 }
 
 async function uploadPdfs(event) {

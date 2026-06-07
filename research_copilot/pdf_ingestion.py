@@ -233,8 +233,25 @@ def _extract_pdf(path: Path) -> PdfExtraction:
     saw_textless_page = False
     ocr_error = ""
     ocr_available = True
+    
+    md_chunks = []
+    try:
+        import pymupdf4llm
+        # Using path as a string is highly reliable for pymupdf4llm
+        md_chunks = pymupdf4llm.to_markdown(str(path), page_chunks=True)
+    except ImportError:
+        print("pymupdf4llm not installed, falling back to basic extraction")
+    except Exception as e:
+        print(f"pymupdf4llm extraction failed: {e}")
+
     for index, page in enumerate(doc, start=1):
-        text = page.get_text("text", sort=True).strip()
+        text = ""
+        if index - 1 < len(md_chunks):
+            text = md_chunks[index - 1].get("text", "").strip()
+            
+        if not text:
+            text = page.get_text("text", sort=True).strip()
+            
         if not text and ocr_available:
             saw_textless_page = True
             text, ocr_error = _try_ocr_page(page)
@@ -242,9 +259,11 @@ def _extract_pdf(path: Path) -> PdfExtraction:
                 ocr_available = False
         elif not text:
             saw_textless_page = True
+            
         lines = _clean_lines(text)
         if lines:
             pages.append(ExtractedPage(page_number=index, lines=lines))
+            
     page_count = doc.page_count
     doc.close()
 

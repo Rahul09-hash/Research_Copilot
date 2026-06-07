@@ -6,6 +6,7 @@ ollama>=0.2.1
 qdrant-client>=1.9.1
 sentence-transformers>=3.0.1
 PyMuPDF>=1.24.5
+pymupdf4llm>=0.0.17
 networkx>=3.3
 pyvis>=0.3.2
 rank-bm25>=0.2.2

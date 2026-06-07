@@ -19,6 +19,120 @@ from research_copilot.vector_store import VectorStore
 
 st.set_page_config(page_title="Research Copilot", page_icon="RC", layout="wide")
 
+# ---------------------------------------------------------------------------
+# Math-aware message rendering
+# ---------------------------------------------------------------------------
+
+_UNICODE_TO_LATEX: dict[str, str] = {
+    "α": r"\alpha", "β": r"\beta", "γ": r"\gamma", "δ": r"\delta",
+    "ε": r"\varepsilon", "ζ": r"\zeta", "η": r"\eta", "θ": r"\theta",
+    "ι": r"\iota", "κ": r"\kappa", "λ": r"\lambda", "μ": r"\mu", "µ": r"\mu",
+    "ν": r"\nu", "ξ": r"\xi", "π": r"\pi", "ρ": r"\rho",
+    "σ": r"\sigma", "τ": r"\tau", "υ": r"\upsilon", "φ": r"\phi",
+    "χ": r"\chi", "ψ": r"\psi", "ω": r"\omega",
+    "Γ": r"\Gamma", "Δ": r"\Delta", "Θ": r"\Theta", "Λ": r"\Lambda",
+    "Ξ": r"\Xi", "Π": r"\Pi", "Σ": r"\Sigma", "Φ": r"\Phi",
+    "Ψ": r"\Psi", "Ω": r"\Omega",
+    "×": r"\times", "·": r"\cdot", "÷": r"\div", "±": r"\pm",
+    "≤": r"\leq", "≥": r"\geq", "≠": r"\neq", "≈": r"\approx",
+    "∞": r"\infty", "∫": r"\int", "∑": r"\sum", "∏": r"\prod",
+    "∂": r"\partial", "∇": r"\nabla", "∝": r"\propto",
+    "→": r"\rightarrow", "←": r"\leftarrow",
+    "⇌": r"\rightleftharpoons", "⇒": r"\Rightarrow",
+    "₀": "_0", "₁": "_1", "₂": "_2", "₃": "_3", "₄": "_4",
+    "₅": "_5", "₆": "_6", "₇": "_7", "₈": "_8", "₉": "_9",
+    "⁰": "^0", "¹": "^1", "²": "^2", "³": "^3", "⁴": "^4",
+}
+
+def _to_latex(expr: str) -> str:
+    """Convert plain-text math expression to LaTeX for st.latex() rendering."""
+    import re
+    s = expr
+    for uni, latex in _UNICODE_TO_LATEX.items():
+        if latex.startswith("\\"):
+            s = s.replace(uni, latex + " ")
+        else:
+            s = s.replace(uni, latex)
+    s = re.sub(
+        r"\bd([A-Za-z\\]+(?:\{[^}]+\})?)/d([A-Za-z]+)",
+        lambda m: rf"\frac{{d{m.group(1)}}}{{d{m.group(2)}}}",
+        s,
+    )
+    s = re.sub(r"(?<=[\w\d\)])\s*\*\s*(?=[\w\d\(\\])", r" \cdot ", s)
+    s = re.sub(r"([A-Za-z]+|\\[A-Za-z]+)\s*(\d+)", r"\1_{\2}", s)
+    return s
+
+def _is_math_line(line: str) -> bool:
+    import re
+    s = line.strip()
+    if not s:
+        return False
+    s_clean = re.sub(r"^(\d+\.|-|\*|\#|>|`)\s*", "", s).strip()
+    english_words = re.findall(r"\b[a-zA-Z]{4,}\b", s_clean)
+    if len(english_words) > 4:
+        return False
+    has_eq = "=" in s_clean or "≈" in s_clean or "->" in s_clean or "=>" in s_clean or "→" in s_clean
+    has_math_chars = bool(re.search(r"[\+\-\*/\^∫∑∂∇]", s_clean))
+    has_vars = bool(re.search(r"[α-ωΑ-ΩµΦΨΩΘΛΣΠΔΓΞ]", s_clean))
+    return has_eq or (has_math_chars and has_vars)
+
+def _format_inline_math(text: str) -> str:
+    import re
+    line = re.sub(r"([α-ωΑ-ΩµΦΨΩΘΛΣΠΔΓΞ]+[A-Za-z0-9_]*)", r"$\1$", text)
+    line = re.sub(r"\b([A-Za-z]\d+)\b", r"$\1$", line)
+    def _latex_repl(m):
+        return f"${_to_latex(m.group(1).strip())}$"
+    line = re.sub(r"\$([^\$]+)\$", _latex_repl, line)
+    return line
+
+def _process_plain_segment(text: str) -> None:
+    import re
+    text = re.sub(r"^(#{1,6})\s+(.*)", r"\n\n\1 \2\n\n", text, flags=re.MULTILINE)
+    lines = text.splitlines()
+    prose_buf: list[str] = []
+    
+    def _flush_prose() -> None:
+        chunk = "\n".join(prose_buf).strip()
+        if chunk:
+            st.markdown(_format_inline_math(chunk))
+        prose_buf.clear()
+        
+    for line in lines:
+        s_line = line.strip()
+        if not s_line:
+            _flush_prose()
+            continue
+            
+        parts = re.split(r"(?<=[.:])\s+", s_line)
+        
+        if _is_math_line(s_line):
+            _flush_prose()
+            clean_math = re.sub(r"^>\s*", "", s_line).strip()
+            st.latex(_to_latex(clean_math))
+        elif len(parts) > 1 and _is_math_line(parts[-1]):
+            prose_buf.append(" ".join(parts[:-1]))
+            _flush_prose()
+            clean_math = re.sub(r"^>\s*", "", parts[-1]).strip()
+            st.latex(_to_latex(clean_math))
+        elif s_line.startswith("#"):
+            _flush_prose()
+            st.markdown(s_line)
+        else:
+            prose_buf.append(s_line)
+            
+    _flush_prose()
+
+def _render_message(text: str) -> None:
+    import re
+    parts = re.split(r"(\$\$[\s\S]*?\$\$)", text)
+    for part in parts:
+        if part.startswith("$$") and part.endswith("$$") and len(part) > 4:
+            latex_body = part[2:-2].strip()
+            if latex_body:
+                st.latex(_to_latex(latex_body))
+        else:
+            if part.strip():
+                _process_plain_segment(part)
 
 @st.cache_resource
 def get_services() -> tuple[Settings, Database, EmbeddingService, VectorStore, HybridRetriever, RAGEngine, KnowledgeGraphBuilder]:
@@ -137,7 +251,7 @@ def render_chat(settings: Settings, db: Database, rag: RAGEngine, workspace_id: 
     messages = db.get_recent_messages(chat_id, settings.chat_history_limit)
     for message in messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            _render_message(message["content"])
             citations = message.get("citations")
             if citations:
                 with st.expander("Citations"):
@@ -156,10 +270,17 @@ def render_chat(settings: Settings, db: Database, rag: RAGEngine, workspace_id: 
         with st.chat_message("assistant"):
             with st.spinner("Retrieving local sources..."):
                 prepared = rag.prepare_answer(workspace_id, chat_id, prompt)
-            streamed_content = st.write_stream(_character_stream(rag.stream_prepared(prepared)))
-            if not isinstance(streamed_content, str):
-                streamed_content = "".join(str(item) for item in streamed_content)
-            saved_content = rag.with_sources(streamed_content, prepared.citations)
+            
+            live = st.empty()
+            full_response = ""
+            for chunk in rag.stream_prepared(prepared):
+                full_response += str(chunk)
+                live.markdown(full_response + " ▌")
+                
+            live.empty()
+            _render_message(full_response)
+            
+            saved_content = rag.with_sources(full_response, prepared.citations)
             source_block = rag.with_sources("", prepared.citations).strip() if prepared.citations else ""
             if source_block:
                 st.markdown(source_block)
@@ -173,12 +294,6 @@ def render_chat(settings: Settings, db: Database, rag: RAGEngine, workspace_id: 
                         st.caption(citation["snippet"])
         db.add_message(chat_id, "assistant", saved_content, prepared.citations)
         db.update_conversation_summary(chat_id)
-
-
-def _character_stream(chunks):
-    for chunk in chunks:
-        for character in str(chunk):
-            yield character
 
 
 def render_documents(
@@ -207,20 +322,18 @@ def render_documents(
         return
 
     st.subheader("Documents")
-    st.dataframe(
-        [
-            {
-                "ID": doc["id"],
-                "File": doc["file_name"],
-                "Pages": doc["page_count"],
-                "SHA256": doc["sha256"][:12],
-                "Uploaded": doc["created_at"],
-            }
-            for doc in documents
-        ],
-        width="stretch",
-        hide_index=True,
-    )
+    for doc in documents:
+        with st.container():
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f"**{doc['file_name']}** (ID: {doc['id']}, {doc['page_count']} pages)")
+                st.caption(f"SHA256: {doc['sha256'][:12]} | Uploaded: {doc['created_at']}")
+            with col2:
+                if st.button("Delete", key=f"del_doc_{doc['id']}"):
+                    vector_store.delete_chunks_for_document(doc["id"])
+                    db.delete_document(doc["id"])
+                    st.rerun()
+            st.divider()
 
 
 def render_notes(db: Database, workspace_id: int, chat_id: int) -> None:

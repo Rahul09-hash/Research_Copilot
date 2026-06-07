@@ -95,3 +95,15 @@ class VectorStore:
                 limit=limit,
             ).points
         return [VectorHit(chunk_id=int(hit.id), score=float(hit.score), payload=hit.payload or {}) for hit in hits]
+
+    def delete_chunks_for_document(self, document_id: int) -> None:
+        if self.client is None:
+            return
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=Filter(
+                must=[FieldCondition(key="document_id", match=MatchValue(value=int(document_id)))]
+            ),
+        )

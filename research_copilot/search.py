@@ -147,7 +147,8 @@ class HybridRetriever:
 
 
 def _tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-zA-Z0-9]+", text.lower())
+    # Include Unicode characters, Greek letters, and digits for scientific BM25 tokenization
+    return re.findall(r"[\wα-ωΑ-ΩµΦΨΩΘΛΣΠΔΓΞ]+", text.lower())
 
 
 def _simple_keyword_score(query_tokens: list[str], doc_tokens: list[str]) -> float:

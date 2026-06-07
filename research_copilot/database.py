@@ -277,6 +277,10 @@ class Database:
             row = conn.execute("SELECT * FROM document WHERE id = ?", (document_id,)).fetchone()
             return dict(row) if row else None
 
+    def delete_document(self, document_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM document WHERE id = ?", (document_id,))
+
     def add_chunks(self, chunks: Iterable[dict[str, Any]]) -> list[int]:
         inserted: list[int] = []
         with self.connect() as conn:
