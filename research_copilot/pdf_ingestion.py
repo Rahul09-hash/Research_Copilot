@@ -287,9 +287,27 @@ def _extract_pdf(path: Path) -> PdfExtraction:
     return PdfExtraction(metadata=metadata, pages=pages, page_count=page_count, status=status, message=message)
 
 
+import os
+
 def _try_ocr_page(page: fitz.Page) -> tuple[str, str]:
+    tessdata = None
+    if os.name == "nt" and not os.environ.get("TESSDATA_PREFIX"):
+        common_paths = [
+            r"C:\Program Files\Tesseract-OCR\tessdata",
+            r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
+            r"D:\Program Files\Tesseract-OCR\tessdata",
+            r"C:\msys64\mingw64\share\tessdata",
+        ]
+        for path in common_paths:
+            if os.path.exists(path):
+                tessdata = path
+                break
+                
     try:
-        textpage = page.get_textpage_ocr(language="eng", dpi=150, full=True)
+        if tessdata:
+            textpage = page.get_textpage_ocr(language="eng", dpi=150, full=True, tessdata=tessdata)
+        else:
+            textpage = page.get_textpage_ocr(language="eng", dpi=150, full=True)
         return page.get_text("text", textpage=textpage).strip(), ""
     except Exception as exc:
         return "", f"{exc.__class__.__name__}: {exc}"

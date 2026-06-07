@@ -368,13 +368,16 @@ async function loadDocuments() {
       <p>${doc.page_count} pages - ${doc.chunk_count || 0} chunks - ${doc.sha256.slice(0, 12)} - ${doc.created_at}</p>
       <p class="${statusClass}">${escapeHtml(status)}${message ? `: ${escapeHtml(message)}` : ""}</p>
       <div class="card-actions">
-        <a href="/api/documents/${doc.id}/pdf" target="_blank" rel="noopener">Open PDF</a>
+        <button data-open="${doc.id}">Open PDF</button>
         <button data-reprocess="${doc.id}">Reprocess</button>
         <button class="danger" data-delete="${doc.id}">Delete</button>
       </div>
     `;
     list.append(card);
   }
+  document.querySelectorAll("[data-open]").forEach((button) => {
+    button.addEventListener("click", () => window.openPdfViewer(`/api/documents/${button.dataset.open}/pdf`));
+  });
   document.querySelectorAll("[data-reprocess]").forEach((button) => {
     button.addEventListener("click", () => reprocessDocument(button.dataset.reprocess));
   });
