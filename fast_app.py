@@ -201,7 +201,11 @@ async def document_pdf(request: Request) -> FileResponse | JSONResponse:
     path = Path(document["file_path"])
     if not path.exists():
         return JSONResponse({"error": "PDF file is missing on disk."}, status_code=404)
-    return FileResponse(path, media_type="application/pdf", filename=document["file_name"])
+    return FileResponse(
+        path, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": "inline"}
+    )
 
 
 async def upload_pdf(request: Request) -> JSONResponse:

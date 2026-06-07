@@ -606,3 +606,45 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* PDF Viewer Layout */
+.main.split-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 18px;
+}
+
+.main.split-layout .view {
+  flex: 1;
+  border-right: 1px solid var(--line);
+}
+
+#pdfViewerPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-width: 0;
+}
+
+#pdfViewerPanel.hidden {
+  display: none;
+}
+
+.pdf-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+#pdfIframe {
+  flex: 1;
+  border: none;
+  width: 100%;
+  height: 100%;
+}
+

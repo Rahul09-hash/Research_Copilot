@@ -62,8 +62,10 @@ class RAGEngine:
             {
                 "role": "system",
                 "content": (
-                    "You are Research Copilot, a local research assistant. Answer only from the supplied context. "
-                    "Use bracket citations like [1] for every factual claim. If the context is insufficient, say so. "
+                    "You are Research Copilot, a local research assistant. Answer ONLY from the supplied context. "
+                    "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
+                    "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
+                    "If the context is insufficient, say so. "
                     "For mathematics, physics, statistics, algorithms, and chemistry, explain the reasoning step by step "
                     "in plain language and keep standalone formulas inside $$ ... $$ blocks. Use simple LaTeX only inside "
                     "math blocks, such as \\frac{a}{b}, x_i, x^2, \\sqrt{x}, \\sum, \\int, and Greek commands. "
@@ -115,7 +117,8 @@ class RAGEngine:
                 "content": (
                     "Write a concise literature review from the supplied research context. "
                     "Organize it with headings for themes, agreements, disagreements, limitations, and open questions. "
-                    "Use bracket citations for claims. If math or chemistry is central, preserve key equations in "
+                    "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every claim. "
+                    "If math or chemistry is central, preserve key equations in "
                     "$$ ... $$ blocks and use $$\\ce{...}$$ for chemical reactions."
                 ),
             },

@@ -299,18 +299,54 @@ function renderSources(citations) {
   for (const citation of citations) {
     const source = document.createElement("a");
     source.className = "source";
-    source.href = citation.url || `/api/documents/${citation.document_id}/pdf#page=${citation.page_start || 1}`;
-    source.target = "_blank";
-    source.rel = "noopener";
+    source.href = "#";
+    
+    let url = citation.url || `/api/documents/${citation.document_id}/pdf#page=${citation.page_start || 1}`;
+    if (citation.snippet) {
+      // Use standard PDF fragment parameters for search highlighting
+      // Replace newlines with spaces so the PDF engine matches it correctly
+      const cleanSnippet = citation.snippet.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+      const exactText = encodeURIComponent(cleanSnippet.substring(0, 50));
+      if (url.includes("#")) {
+        url += `&search=${exactText}`;
+      } else {
+        url += `#search=${exactText}`;
+      }
+    }
+    
+    source.addEventListener("click", (e) => {
+      e.preventDefault();
+      window.openPdfViewer(url, citation.file_name);
+    });
+
     const lineRange = citation.line_start
       ? `, lines ${citation.line_start}${citation.line_end && citation.line_end !== citation.line_start ? `-${citation.line_end}` : ""}`
       : "";
     source.textContent = `[${citation.number}] ${citation.file_name} p.${citation.page_start || "?"}${lineRange}`;
-    source.title = "Open source PDF";
+    source.title = "Open side-by-side PDF";
     sources.append(source);
   }
   return sources;
 }
+
+window.openPdfViewer = function(url, title) {
+  document.querySelector(".main").classList.add("split-layout");
+  el("pdfViewerPanel").classList.remove("hidden");
+  el("pdfTitle").textContent = title || "Document Viewer";
+  
+  // Browsers ignore hash changes on PDFs, so we must replace the iframe element to force a reload
+  const iframe = el("pdfIframe");
+  const newIframe = iframe.cloneNode();
+  newIframe.src = url;
+  iframe.replaceWith(newIframe);
+};
+
+window.closePdfViewer = function() {
+  document.querySelector(".main").classList.remove("split-layout");
+  el("pdfViewerPanel").classList.add("hidden");
+  el("pdfIframe").src = "";
+};
+
 
 async function loadDocuments() {
   const data = await api(`/api/documents?workspace_id=${state.workspaceId}`);

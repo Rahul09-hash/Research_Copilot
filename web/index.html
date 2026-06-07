@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Research Copilot</title>
-    <link rel="stylesheet" href="/web/app.css" />
+    <link rel="stylesheet" href="/web/app.css?v=3" />
   </head>
   <body>
     <aside class="sidebar">
@@ -127,8 +127,16 @@
         </div>
         <div id="exportResult" class="result"></div>
       </section>
+      
+      <div id="pdfViewerPanel" class="hidden">
+        <div class="pdf-header">
+          <span id="pdfTitle">Document Viewer</span>
+          <button class="icon-btn" onclick="closePdfViewer()" title="Close PDF Viewer">&#10005;</button>
+        </div>
+        <iframe id="pdfIframe" src=""></iframe>
+      </div>
     </main>
 
-    <script src="/web/app.js?v=2"></script>
+    <script src="/web/app.js?v=6"></script>
   </body>
 </html>
