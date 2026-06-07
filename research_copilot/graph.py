@@ -35,18 +35,38 @@ class KnowledgeGraphBuilder:
         if not document:
             return
         chunks = self.db.get_chunks_for_document(document_id)
-        for chunk in chunks:
-            names = extract_entities(chunk["text"])
-            entity_ids = [self.db.upsert_entity(document["workspace_id"], name) for name in names]
-            for source_id, target_id in itertools.combinations(entity_ids[:8], 2):
-                self.db.upsert_relationship(
-                    document["workspace_id"],
-                    source_id,
-                    target_id,
-                    "co_occurs",
-                    document_id,
-                    chunk["id"],
-                )
+        
+        with self.db.connect() as conn:
+            for chunk in chunks:
+                names = extract_entities(chunk["text"])
+                entity_ids = []
+                for name in names:
+                    normalized = name.strip()
+                    conn.execute(
+                        "INSERT OR IGNORE INTO entity(workspace_id, name, type) VALUES (?, ?, ?)",
+                        (document["workspace_id"], normalized, "concept"),
+                    )
+                    row = conn.execute(
+                        "SELECT id FROM entity WHERE workspace_id = ? AND name = ?",
+                        (document["workspace_id"], normalized),
+                    ).fetchone()
+                    entity_ids.append(int(row["id"]))
+                    
+                for source_id, target_id in itertools.combinations(entity_ids[:8], 2):
+                    if source_id == target_id: continue
+                    if source_id > target_id: source_id, target_id = target_id, source_id
+                    conn.execute(
+                        """
+                        INSERT INTO relationship(
+                            workspace_id, source_entity_id, target_entity_id, label,
+                            weight, document_id, chunk_id
+                        )
+                        VALUES (?, ?, ?, ?, 1.0, ?, ?)
+                        ON CONFLICT(workspace_id, source_entity_id, target_entity_id, label, document_id, chunk_id)
+                        DO UPDATE SET weight = weight + 1.0
+                        """,
+                        (document["workspace_id"], source_id, target_id, "co_occurs", document_id, chunk["id"]),
+                    )
 
     def rebuild_workspace(self, workspace_id: int) -> None:
         self.db.clear_graph(workspace_id)

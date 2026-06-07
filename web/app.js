@@ -46,20 +46,51 @@ function bindEvents() {
   document.querySelectorAll("[data-export]").forEach((button) => {
     button.addEventListener("click", () => exportChat(button.dataset.export));
   });
+
+  el("modelSelect").addEventListener("change", async (e) => {
+    const newModel = e.target.value;
+    await fetch("/api/models/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: newModel })
+    });
+  });
 }
 
 async function bootstrap() {
-  const data = await api("/api/bootstrap");
-  state.settings = data.settings;
-  state.workspaceId = data.workspace_id;
-  state.chatId = data.chat_id;
+  try {
+    const config = await api("/api/bootstrap");
+    el("embeddingStatus").textContent = config.settings.embedding;
+    el("rerankerStatus").textContent = config.settings.reranker ? "on" : "off";
 
-  el("embeddingStatus").textContent = data.settings.embedding;
-  el("rerankerStatus").textContent = data.settings.reranker ? "on" : "off";
-  el("modelStatus").textContent = data.settings.ollama_model;
+    // Load available models
+    try {
+      const modelData = await api("/api/models");
+      const select = el("modelSelect");
+      select.innerHTML = "";
+      modelData.models.forEach(modelName => {
+        const option = document.createElement("option");
+        option.value = modelName;
+        option.textContent = modelName;
+        if (modelName === modelData.active) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+    } catch (e) {
+      console.error("Failed to load models", e);
+    }
 
-  renderWorkspaceOptions(data.workspaces);
-  renderChatOptions(data.chats);
+    const { workspaces } = await api("/api/workspaces");
+    state.settings = config.settings;
+    state.workspaceId = config.workspace_id;
+    state.chatId = config.chat_id;
+
+    renderWorkspaceOptions(workspaces);
+    await loadChats();
+  } catch (e) {
+    console.error("Bootstrap failed", e);
+  }
 }
 
 async function refreshActiveView() {

@@ -94,6 +94,50 @@ async def list_chats(request: Request) -> JSONResponse:
     return JSONResponse({"chats": chats})
 
 
+async def list_models(request: Request) -> JSONResponse:
+    services = get_services()
+    try:
+        import ollama
+        client = ollama.Client(host=services.settings.ollama_host)
+        resp = client.list()
+        # Handle both dict and object responses from different ollama versions
+        models_list = []
+        if hasattr(resp, "get"):
+            models_list = resp.get("models") or getattr(resp, "models", [])
+        else:
+            models_list = getattr(resp, "models", [])
+            
+        models = []
+        for m in models_list:
+            if isinstance(m, dict):
+                name = m.get("model") or m.get("name")
+            else:
+                name = getattr(m, "model", None) or getattr(m, "name", None)
+            if name:
+                models.append(str(name))
+                
+        if not models:
+            models = [services.rag.llm.model]
+    except Exception as e:
+        print(f"Error fetching models: {e}")
+        models = [services.rag.llm.model]
+    
+    return JSONResponse({
+        "models": models,
+        "active": services.rag.llm.model
+    })
+
+
+async def select_model(request: Request) -> JSONResponse:
+    services = get_services()
+    payload = await request.json()
+    new_model = payload.get("model")
+    if new_model:
+        # In-memory override for the current session
+        object.__setattr__(services.rag.llm, "model", new_model)
+    return JSONResponse({"status": "success", "active": services.rag.llm.model})
+
+
 async def create_chat(request: Request) -> JSONResponse:
     payload = await request.json()
     workspace_id = int(payload.get("workspace_id") or 0)
@@ -179,6 +223,9 @@ async def upload_pdf(request: Request) -> JSONResponse:
         chat_id,
         named_file,
     )
+    if result.chunk_count > 0:
+        await run_in_threadpool(services.graph_builder.build_for_document, result.document_id)
+        await run_in_threadpool(services.graph_builder.render_workspace, workspace_id)
     return JSONResponse(
         {
             "document_id": result.document_id,
@@ -202,6 +249,11 @@ async def reprocess_pdf(request: Request) -> JSONResponse:
         services.vector_store,
         document_id,
     )
+    if result.chunk_count > 0:
+        await run_in_threadpool(services.graph_builder.build_for_document, result.document_id)
+        document = await run_in_threadpool(services.db.get_document, document_id)
+        if document:
+            await run_in_threadpool(services.graph_builder.render_workspace, int(document["workspace_id"]))
     return JSONResponse(
         {
             "document_id": result.document_id,
@@ -298,6 +350,8 @@ routes = [
     Route("/api/workspaces", create_workspace, methods=["POST"]),
     Route("/api/chats", list_chats, methods=["GET"]),
     Route("/api/chats", create_chat, methods=["POST"]),
+    Route("/api/models", list_models, methods=["GET"]),
+    Route("/api/models/select", select_model, methods=["POST"]),
     Route("/api/messages", messages, methods=["GET"]),
     Route("/api/chat", stream_chat, methods=["POST"]),
     Route("/api/documents", documents, methods=["GET"]),
