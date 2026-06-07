@@ -15,13 +15,17 @@ ENTITY_PATTERN = re.compile(
     r"\b(?:[A-Z][a-zA-Z0-9-]+|[A-Z]{2,})(?:\s+(?:[A-Z][a-zA-Z0-9-]+|[A-Z]{2,})){0,4}\b"
 )
 STOP_ENTITIES = {
-    "Abstract",
-    "Introduction",
-    "Conclusion",
-    "References",
-    "Figure",
-    "Table",
-    "Copyright",
+    "abstract", "introduction", "conclusion", "references", "figure", "table", "copyright",
+    "the", "this", "that", "these", "those", "it", "they", "we", "he", "she", "you",
+    "in", "on", "at", "by", "for", "with", "about", "between", "into", "through",
+    "during", "before", "after", "above", "below", "to", "from", "over", "under",
+    "and", "but", "yet", "so", "because", "since", "unless", "while", "whereas",
+    "however", "furthermore", "moreover", "nevertheless", "therefore", "thus", "hence",
+    "first", "second", "third", "finally", "lastly", "next", "then",
+    "here", "there", "where", "when", "why", "how", "what", "which", "who", "whom", "whose",
+    "is", "are", "was", "were", "be", "been", "have", "has", "had",
+    "do", "does", "did", "can", "could", "shall", "should", "will", "would", "may", "might", "must",
+    "as", "such", "also", "only", "even", "just", "very", "much", "many", "most", "some", "any", "all", "not",
 }
 
 
@@ -77,6 +81,12 @@ class KnowledgeGraphBuilder:
         entities, relationships = self.db.list_graph(workspace_id)
         if not entities:
             return None
+            
+        # Prevent browser freezing by limiting to the most important relationships
+        relationships = sorted(relationships, key=lambda x: float(x.get("weight", 1.0)), reverse=True)[:250]
+        active_ids = {r["source_entity_id"] for r in relationships} | {r["target_entity_id"] for r in relationships}
+        entities = [e for e in entities if e["id"] in active_ids]
+        
         graph_path = self.settings.graphs_dir / f"workspace_{workspace_id}.html"
         try:
             from pyvis.network import Network
@@ -103,7 +113,7 @@ def extract_entities(text: str, limit: int = 20) -> list[str]:
     entities: list[str] = []
     for match in ENTITY_PATTERN.findall(text):
         name = " ".join(match.split()).strip()
-        if len(name) < 3 or name in STOP_ENTITIES or name in seen:
+        if len(name) < 3 or name.lower() in STOP_ENTITIES or name in seen:
             continue
         seen.add(name)
         entities.append(name)
