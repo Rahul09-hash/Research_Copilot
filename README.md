@@ -9,9 +9,10 @@ Because this runs entirely on your hardware, **your data remains 100% private.**
 ## ✨ Features
 
 - **100% Local Processing:** Uses `Ollama` for AI generation and `ChromaDB` for vector retrieval. No data is sent to the cloud.
-- **Advanced PDF Ingestion:** Upload any PDF. If it's a scanned document without embedded text, it automatically falls back to Tesseract OCR to extract the raw images.
-- **Smart Citations:** Ask questions about your literature and get perfectly formatted markdown citations (`[1]`, `[2]`) that correspond exactly to chunks of your uploaded texts. Clicking a citation instantly opens the PDF side-by-side.
-- **Knowledge Graphs:** Automatically generates interactive visual relationship graphs of the most important concepts and entities spanning across your entire workspace.
+- **Advanced PDF Ingestion:** Upload any PDF. If it's a scanned document without embedded text, it automatically falls back to Tesseract OCR to extract the raw images using highly optimized multithreading.
+- **Multi-Modal Vision:** Paste multiple screenshots and images directly into the chat composer. The app seamlessly integrates with local vision models (like `llava`) to answer complex questions about multiple images simultaneously.
+- **Semantic PDF Highlighting:** Ask questions about your literature and get perfectly formatted markdown citations (`[1]`, `[2]`). The backend accurately filters false citations. Clicking a citation opens the PDF side-by-side with the exact sentence the AI used brilliantly highlighted in **yellow** using a custom backend PyMuPDF engine.
+- **Knowledge Graphs & GraphRAG:** Automatically generates interactive visual relationship graphs of the most important concepts spanning across your entire workspace. The RAG engine actively queries these explicit connections during chat to provide heavily grounded, multi-hop reasoning. *(Note: The `co_occurs` label indicates two entities are frequently mentioned together without a strict causal relationship).*
 - **Document Comparison:** Select two papers and instantly generate a lexical comparison highlighting shared themes and distinct focus areas.
 - **Literature Reviews:** With one click, synthesize a comprehensive literature review from all documents in your current workspace.
 - **Exports:** Export your entire chat history, including AI answers and citations, cleanly to Markdown, PDF, or DOCX formats.
@@ -25,9 +26,10 @@ To run this application, you need the following installed on your machine:
 
 1. **Python 3.10+**: Make sure Python is in your system PATH.
 2. **Ollama**: Download and install [Ollama](https://ollama.com/) to run the local LLM.
-   - Once installed, open your terminal and pull a fast model (e.g., Llama 3):
+   - Once installed, open your terminal and pull a fast model (e.g., Llama 3) and a vision model (e.g., LLaVA) if you plan to paste images:
      ```bash
      ollama run llama3:8b-instruct
+     ollama pull llava
      ```
 3. **Tesseract OCR (Optional but highly recommended)**: Required for reading "scanned" PDFs that lack a native text layer.
    - **Windows:** Download the installer from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). The app will automatically detect it if installed in `C:\Program Files\Tesseract-OCR`.

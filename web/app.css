@@ -641,6 +641,28 @@ textarea:focus {
   font-weight: 600;
 }
 
+#pdfTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+  margin-right: 15px;
+}
+
+.icon-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  padding: 4px 8px;
+  color: var(--muted);
+}
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
 #pdfIframe {
   flex: 1;
   border: none;

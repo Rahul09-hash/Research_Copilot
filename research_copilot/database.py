@@ -540,6 +540,53 @@ class Database:
             ).fetchone()
             return str(row["summary"]) if row else ""
 
+    def search_graph_context(self, workspace_id: int, query: str) -> list[str]:
+        import re
+        query_lower = query.lower()
+        matched_entity_ids = set()
+        
+        with self.connect() as conn:
+            entities = conn.execute(
+                "SELECT id, name FROM entity WHERE workspace_id = ?", 
+                (workspace_id,)
+            ).fetchall()
+            
+            for row in entities:
+                name = row["name"].lower()
+                if len(name) > 3 and name in query_lower:
+                    matched_entity_ids.add(row["id"])
+                elif len(name) <= 3:
+                    if re.search(r'\b' + re.escape(name) + r'\b', query_lower):
+                        matched_entity_ids.add(row["id"])
+                        
+            if not matched_entity_ids:
+                return []
+                
+            placeholders = ",".join("?" * len(matched_entity_ids))
+            params = [workspace_id] + list(matched_entity_ids) + list(matched_entity_ids)
+            
+            relations = conn.execute(
+                f"""
+                SELECT r.label, se.name AS source_name, te.name AS target_name, d.file_name
+                FROM relationship r
+                JOIN entity se ON se.id = r.source_entity_id
+                JOIN entity te ON te.id = r.target_entity_id
+                LEFT JOIN document d ON d.id = r.document_id
+                WHERE r.workspace_id = ?
+                AND (r.source_entity_id IN ({placeholders}) OR r.target_entity_id IN ({placeholders}))
+                ORDER BY r.weight DESC
+                LIMIT 50
+                """,
+                params
+            ).fetchall()
+            
+            facts = []
+            for row in relations:
+                doc_info = f" (from {row['file_name']})" if row['file_name'] else ""
+                facts.append(f"{row['source_name']} -> {row['label']} -> {row['target_name']}{doc_info}")
+                
+            return facts
+
 
 def _decode_messages(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
     messages = []

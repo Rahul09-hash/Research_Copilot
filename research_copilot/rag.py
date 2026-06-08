@@ -63,7 +63,8 @@ class RAGEngine:
             {
                 "role": "system",
                 "content": (
-                    "You are Research Copilot, a local research assistant. Answer ONLY from the supplied context. "
+                    "You are Research Copilot, a local research assistant. Answer ONLY from the supplied Context and Knowledge Graph Facts. "
+                    "CRITICAL: The Knowledge Graph Facts are explicit connections pre-extracted from the documents. Weigh them heavily when answering relational questions. "
                     "CRITICAL: You MUST use proper Markdown formatting. Break your answer into logical sections using headings (e.g. ## Heading) and separate paragraphs with clear line breaks. "
                     "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
                     "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
@@ -78,10 +79,19 @@ class RAGEngine:
                 ),
             },
         ]
+        graph_facts = self.db.search_graph_context(workspace_id, question)
+        graph_context = ""
+        if graph_facts:
+            print(f"\n[GraphRAG] Found {len(graph_facts)} explicit connections for entities in query!")
+            for fact in graph_facts:
+                print(f"  -> {fact}")
+            graph_context = "Knowledge Graph Facts (Explicit Relationships):\n" + "\n".join(f"- {fact}" for fact in graph_facts) + "\n\n"
+
         user_message = {
             "role": "user",
             "content": (
                 f"Conversation memory:\n{memory or 'None'}\n\n"
+                f"{graph_context}"
                 f"Context:\n{context}\n\nQuestion: {question}"
             ),
         }
