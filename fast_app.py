@@ -10,7 +10,7 @@ from typing import Any, BinaryIO
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -235,6 +235,63 @@ async def document_pdf(request: Request) -> FileResponse | JSONResponse:
         headers={"Content-Disposition": "inline"}
     )
 
+async def document_highlight(request: Request) -> Response | JSONResponse:
+    document_id = int(request.path_params["document_id"])
+    chunk_id = int(request.path_params["chunk_id"])
+    services = get_services()
+    
+    document = await run_in_threadpool(services.db.get_document, document_id)
+    if not document:
+        return JSONResponse({"error": "Document not found."}, status_code=404)
+        
+    chunk = await run_in_threadpool(services.db.get_chunk, chunk_id)
+    if not chunk or chunk["document_id"] != document_id:
+        return JSONResponse({"error": "Chunk not found."}, status_code=404)
+        
+    path = Path(document["file_path"])
+    if not path.exists():
+        return JSONResponse({"error": "PDF file is missing on disk."}, status_code=404)
+        
+    def highlight_pdf():
+        import fitz
+        doc = fitz.open(path)
+        # page_start is 1-indexed in database, PyMuPDF is 0-indexed
+        page_idx = (chunk["page_start"] - 1) if chunk.get("page_start") else 0
+        if page_idx < 0 or page_idx >= doc.page_count:
+            page_idx = 0
+            
+        page = doc[page_idx]
+        
+        # Search line by line to handle potential whitespace issues
+        lines = chunk["text"].split("\n")
+        found_any = False
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            rects = page.search_for(line)
+            for rect in rects:
+                annot = page.add_highlight_annot(rect)
+                if annot:
+                    annot.update()
+                found_any = True
+                
+        # If no exact lines match, try smaller chunks
+        if not found_any:
+            words = chunk["text"].split()
+            for i in range(0, len(words) - 2, 3):
+                phrase = " ".join(words[i:i+3])
+                rects = page.search_for(phrase)
+                for rect in rects:
+                    annot = page.add_highlight_annot(rect)
+                    if annot:
+                        annot.update()
+
+        return doc.tobytes()
+        
+    pdf_bytes = await run_in_threadpool(highlight_pdf)
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
 
 async def upload_pdf(request: Request) -> JSONResponse:
     services = get_services()
@@ -432,6 +489,7 @@ routes = [
     Route("/api/chat", stream_chat, methods=["POST"]),
     Route("/api/documents", documents, methods=["GET"]),
     Route("/api/documents/{document_id:int}/pdf", document_pdf, methods=["GET"]),
+    Route("/api/documents/{document_id:int}/highlight/{chunk_id:int}", document_highlight, methods=["GET"]),
     Route("/api/documents/{document_id:int}/reprocess", reprocess_pdf, methods=["POST"]),
     Route("/api/documents/{document_id:int}", delete_pdf, methods=["DELETE"]),
     Route("/api/upload", upload_pdf, methods=["POST"]),

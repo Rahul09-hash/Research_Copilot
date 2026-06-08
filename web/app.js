@@ -384,9 +384,12 @@ function renderSources(citations) {
     source.href = "#";
     
     let url = citation.url || `/api/documents/${citation.document_id}/pdf#page=${citation.page_start || 1}`;
-    if (citation.snippet) {
-      // Use standard PDF fragment parameters for search highlighting
-      // Replace newlines with spaces so the PDF engine matches it correctly
+    
+    // Use dynamic backend highlighting if chunk_id is available
+    if (citation.chunk_id) {
+      url = `/api/documents/${citation.document_id}/highlight/${citation.chunk_id}#page=${citation.page_start || 1}`;
+    } else if (citation.snippet) {
+      // Fallback for native browser highlighting
       const cleanSnippet = citation.snippet.replace(/\n/g, ' ').replace(/\s+/g, ' ');
       const exactText = encodeURIComponent(cleanSnippet.substring(0, 50));
       if (url.includes("#")) {

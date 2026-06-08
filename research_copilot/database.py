@@ -294,6 +294,15 @@ class Database:
     def get_document(self, document_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM document WHERE id = ?", (document_id,)).fetchone()
+            if not row:
+                return None
+            doc = dict(row)
+            doc["metadata"] = json.loads(doc.pop("metadata_json") or "{}")
+            return doc
+
+    def get_chunk(self, chunk_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM document_chunk WHERE id = ?", (chunk_id,)).fetchone()
             return dict(row) if row else None
 
     def delete_document(self, document_id: int) -> None:
