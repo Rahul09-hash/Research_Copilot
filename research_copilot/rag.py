@@ -95,6 +95,7 @@ class RAGEngine:
                     "If tabular datasets (CSV/Excel) are available, you may write Python code to analyze them using pandas. "
                     "CRITICAL FOR CODE: The python environment has ALREADY pre-loaded the datasets into pandas DataFrames named `df_1`, `df_2`, etc. "
                     "DO NOT use `pd.read_csv`. Just use the pre-loaded `df_1` DataFrame directly! "
+                    "You MUST ONLY use `pandas` and `matplotlib.pyplot` for analysis and plotting. DO NOT import `seaborn`, `plotly`, `scipy`, or any other external libraries. "
                     "To execute python code, wrap ALL code inside a SINGLE ````python ... ```` block. "
                     "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`."
                 ),
