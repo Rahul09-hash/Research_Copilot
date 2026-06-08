@@ -227,10 +227,16 @@ async def stream_chat(request: Request) -> StreamingResponse:
                         pass
             except Exception:
                 pass
+            try:
+                import seaborn
+                import scipy
+            except ImportError:
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "seaborn", "scipy", "pandas>=2.1.0"])
                 
             try:
                 # Auto-inject backend and savefig to guarantee plot generation and prevent GUI crashes
-                injected_code = "import numpy as np\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n" + code + "\nplt.savefig('plot.png', bbox_inches='tight')\nplt.close('all')"
+                injected_code = "import numpy as np\nimport seaborn as sns\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n" + code + "\nplt.savefig('plot.png', bbox_inches='tight')\nplt.close('all')"
                 with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stdout_capture):
                     exec(injected_code, exec_globals)
             except Exception as e:

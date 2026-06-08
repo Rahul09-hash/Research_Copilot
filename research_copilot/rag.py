@@ -95,9 +95,15 @@ class RAGEngine:
                     "If tabular datasets (CSV/Excel) are available, you may write Python code to analyze them using pandas. "
                     "CRITICAL FOR CODE: The python environment has ALREADY pre-loaded the datasets into pandas DataFrames named `df_1`, `df_2`, etc. "
                     "DO NOT use `pd.read_csv`. Just use the pre-loaded `df_1` DataFrame directly! "
-                    "You MUST ONLY use `pandas` and `matplotlib.pyplot` for analysis and plotting. DO NOT import `seaborn`, `plotly`, `scipy`, or any other external libraries. "
+                    "You MUST use `pandas`, `numpy`, `matplotlib.pyplot`, and `seaborn` for analysis and plotting. "
+                    "If asked to operate on 'numerical' columns, use `df.select_dtypes(include='number').columns`. "
                     "To execute python code, wrap ALL code inside a SINGLE ````python ... ```` block. "
-                    "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`."
+                    "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`.\n\n"
+                    "--- DATA VISUALIZATION GUIDELINES ---\n"
+                    "When generating plots, you must act as an Expert Data Scientist and ALWAYS follow these aesthetic rules without the user asking:\n"
+                    "1. Figure Size: Make figures large and readable (e.g., `plt.figure(figsize=(12, 6))` for single plots, `(20, 15)` for massive grids).\n"
+                    "2. Distributions / EDA: If asked for 'EDA', 'distributions', or 'histograms' of the dataset, automatically find all numerical columns and create a grid of subplots (`fig, axes = plt.subplots(...)`). You MUST pass the `ax` parameter to seaborn (e.g., `sns.histplot(data=df_1, x=col, kde=True, ax=axes.flatten()[i])`) so plots do not overlap! Remove any empty subplots using `ax.set_visible(False)`.\n"
+                    "3. Polish: Always add titles to subplots, label your axes, and call `plt.tight_layout()` at the end."
                 ),
             },
         ]
@@ -116,7 +122,9 @@ class RAGEngine:
             for ds in datasets:
                 schema = ds["schema"]
                 dataset_context += f"Variable Name: `df_{df_idx}` (File: {ds['file_name']})\n"
-                dataset_context += f"Columns: {', '.join(schema.get('columns', []))}\n"
+                dtypes = schema.get('dtypes', {})
+                col_types = [f"{col} ({dtypes.get(col, 'unknown')})" for col in schema.get('columns', [])]
+                dataset_context += f"Columns and Datatypes: {', '.join(col_types)}\n"
                 dataset_context += f"Preview:\n{schema.get('head', '')}\n\n"
                 df_idx += 1
 
