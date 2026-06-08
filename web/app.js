@@ -274,7 +274,20 @@ function addMessage(role, content = "", citations = [], images = [], messageId =
   renderRichText(textBody, content);
   body.append(textBody);
   
-  item.append(label, body);
+  item.style.position = "relative";
+  const copyBtn = document.createElement("button");
+  copyBtn.innerHTML = "📋";
+  copyBtn.title = "Copy to clipboard";
+  copyBtn.style.cssText = "position: absolute; top: 8px; right: 8px; background: transparent; border: none; cursor: pointer; opacity: 0.3; font-size: 14px; transition: opacity 0.2s;";
+  copyBtn.onmouseover = () => copyBtn.style.opacity = "1";
+  copyBtn.onmouseout = () => copyBtn.style.opacity = "0.3";
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(textBody.dataset.rawText || textBody.textContent || content);
+    copyBtn.innerHTML = "✅";
+    setTimeout(() => copyBtn.innerHTML = "📋", 2000);
+  };
+  
+  item.append(label, copyBtn, body);
   if (citations.length) item.append(renderSources(citations));
   el("messages").append(item);
   scrollMessages();

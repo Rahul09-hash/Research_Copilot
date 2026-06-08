@@ -169,7 +169,10 @@ async def stream_chat(request: Request) -> StreamingResponse:
         return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt or image is required."})]))
 
     def generate():
-        services.db.add_message(chat_id, "user", prompt)
+        user_message_id = services.db.add_message(chat_id, "user", prompt)
+        if image_ids:
+            for i_id in image_ids:
+                services.db.link_image_to_message(i_id, user_message_id)
         
         b64_images = []
         if image_ids:
@@ -263,7 +266,10 @@ async def stream_chat(request: Request) -> StreamingResponse:
                 new_image_id = services.db.add_image(
                     workspace_id, chat_id, "plot.png", str(new_file_path), "image/png"
                 )
+                generated_image_ids = [new_image_id]
                 analysis_text += f"\n\n![Generated Plot](/api/images/{new_image_id}/content)\n"
+            else:
+                generated_image_ids = []
                 
             # Remove the python code block entirely to hide it from the user interface
             content = re.sub(r'```python\n(.*?)(?:```|$)', '', content, flags=re.DOTALL)
@@ -283,8 +289,8 @@ async def stream_chat(request: Request) -> StreamingResponse:
         filtered_citations = [c for c in prepared.citations if c["number"] in used_numbers]
         
         message_id = services.db.add_message(chat_id, "assistant", content, filtered_citations)
-        if image_ids:
-            for i_id in image_ids:
+        if generated_image_ids:
+            for i_id in generated_image_ids:
                 services.db.link_image_to_message(i_id, message_id)
             
         services.db.update_conversation_summary(chat_id)
