@@ -261,31 +261,43 @@ async def document_highlight(request: Request) -> Response | JSONResponse:
             page_idx = 0
             
         page = doc[page_idx]
+        import re
+        clean_text = re.sub(r'\s+', ' ', chunk["text"]).strip()
         
-        # Search line by line to handle potential whitespace issues
-        lines = chunk["text"].split("\n")
+        # 1. Try to search the whole cleaned text
+        rects = page.search_for(clean_text)
         found_any = False
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            rects = page.search_for(line)
+        if rects:
             for rect in rects:
                 annot = page.add_highlight_annot(rect)
-                if annot:
-                    annot.update()
-                found_any = True
-                
-        # If no exact lines match, try smaller chunks
+                if annot: annot.update()
+            found_any = True
+            
         if not found_any:
-            words = chunk["text"].split()
-            for i in range(0, len(words) - 2, 3):
-                phrase = " ".join(words[i:i+3])
-                rects = page.search_for(phrase)
-                for rect in rects:
+            # 2. Try by sentences
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 20]
+            for sentence in sentences:
+                s_rects = page.search_for(sentence)
+                if s_rects:
+                    found_any = True
+                    for rect in s_rects:
+                        annot = page.add_highlight_annot(rect)
+                        if annot: annot.update()
+                        
+        if not found_any:
+            # 3. Fallback to 8-word sliding window to avoid random short highlights
+            words = clean_text.split()
+            if len(words) > 8:
+                for i in range(0, len(words) - 7, 5):
+                    phrase = " ".join(words[i:i+8])
+                    p_rects = page.search_for(phrase)
+                    for rect in p_rects:
+                        annot = page.add_highlight_annot(rect)
+                        if annot: annot.update()
+            else:
+                for rect in page.search_for(clean_text):
                     annot = page.add_highlight_annot(rect)
-                    if annot:
-                        annot.update()
+                    if annot: annot.update()
 
         return doc.tobytes()
         
