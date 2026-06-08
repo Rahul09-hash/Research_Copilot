@@ -46,14 +46,30 @@ class RAGEngine:
     def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_images: list[str] | None = None) -> PreparedAnswer:
         chunks = self.retriever.retrieve(workspace_id, question)
         citations = _citations_from_chunks(chunks)
-        if not chunks:
+        
+        import json
+        documents = self.db.list_documents(workspace_id)
+        datasets = []
+        for doc in documents:
+            try:
+                meta = json.loads(doc.get("metadata_json", "{}"))
+                if meta.get("dataset_schema"):
+                    datasets.append({
+                        "file_name": doc["file_name"],
+                        "file_path": doc["file_path"],
+                        "schema": meta["dataset_schema"]
+                    })
+            except Exception:
+                pass
+
+        if not chunks and not datasets:
             return PreparedAnswer(
                 chunks=[],
                 citations=[],
                 messages=[],
                 fallback_content=(
                     "I could not find uploaded document context for that yet. "
-                    "Add PDFs in the Documents tab and ask again."
+                    "Add PDFs or Datasets in the Documents tab and ask again."
                 ),
             )
 
@@ -75,7 +91,12 @@ class RAGEngine:
                     "Do not put raw backslash math in normal prose. For chemical reactions, write reactions as "
                     "$$\\ce{CH4 + 2 O2 -> CO2 + 2 H2O}$$ style equations when the context supports them. "
                     "If an equation or reaction is not visible in the retrieved context, say that it is not visible instead "
-                    "of inventing it."
+                    "of inventing it. "
+                    "If tabular datasets (CSV/Excel) are available, you may write Python code to analyze them using pandas. "
+                    "CRITICAL FOR CODE: The python environment has ALREADY pre-loaded the datasets into pandas DataFrames named `df_1`, `df_2`, etc. "
+                    "DO NOT use `pd.read_csv`. Just use the pre-loaded `df_1` DataFrame directly! "
+                    "To execute python code, wrap ALL code inside a SINGLE ````python ... ```` block. "
+                    "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`."
                 ),
             },
         ]
@@ -87,10 +108,22 @@ class RAGEngine:
                 print(f"  -> {fact}")
             graph_context = "Knowledge Graph Facts (Explicit Relationships):\n" + "\n".join(f"- {fact}" for fact in graph_facts) + "\n\n"
 
+        dataset_context = ""
+        if datasets:
+            dataset_context = "Available Datasets (PRE-LOADED in Python):\n"
+            df_idx = 1
+            for ds in datasets:
+                schema = ds["schema"]
+                dataset_context += f"Variable Name: `df_{df_idx}` (File: {ds['file_name']})\n"
+                dataset_context += f"Columns: {', '.join(schema.get('columns', []))}\n"
+                dataset_context += f"Preview:\n{schema.get('head', '')}\n\n"
+                df_idx += 1
+
         user_message = {
             "role": "user",
             "content": (
                 f"Conversation memory:\n{memory or 'None'}\n\n"
+                f"{dataset_context}"
                 f"{graph_context}"
                 f"Context:\n{context}\n\nQuestion: {question}"
             ),

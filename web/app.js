@@ -333,7 +333,14 @@ async function sendMessage(event) {
 
     await waitForQueue(queue);
     typing = false;
-    renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+    
+    // Replace the streamed typing text with the final cleaned content from the server
+    if (donePayload && donePayload.content) {
+      renderRichText(assistantBody, donePayload.content);
+    } else {
+      renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+    }
+    
     if (donePayload?.citations?.length) {
       assistantBody.parentElement.append(renderSources(donePayload.citations));
     }
@@ -806,7 +813,7 @@ function renderTextBlock(block) {
 }
 
 function renderInlineText(text) {
-  const inlinePattern = /(\\\([\s\S]+?\\\)|\$[^$\n]{1,240}\$)/g;
+  const inlinePattern = /(\\\([\s\S]+?\\\)|\$[^$\n]{1,240}\$|!\[.*?\]\([^\)]+\))/g;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -816,8 +823,18 @@ function renderInlineText(text) {
       parts.push(escapeHtml(text.slice(lastIndex, match.index)));
     }
     const token = match[0];
-    const formula = token.startsWith("\\(") ? token.slice(2, -2) : token.slice(1, -1);
-    parts.push(looksLikeInlineFormula(formula) ? renderEquationSpan(formula) : escapeHtml(token));
+    if (token.startsWith("![")) {
+      const altMatch = token.match(/!\[(.*?)\]/);
+      const urlMatch = token.match(/\((.*?)\)/);
+      if (altMatch && urlMatch) {
+        parts.push(`<img src="${escapeHtml(urlMatch[1])}" alt="${escapeHtml(altMatch[1])}" style="max-height:300px; border-radius:4px; margin-top:8px;" onclick="window.openImageViewer(this.src, this.alt)">`);
+      } else {
+        parts.push(escapeHtml(token));
+      }
+    } else {
+      const formula = token.startsWith("\\(") ? token.slice(2, -2) : token.slice(1, -1);
+      parts.push(looksLikeInlineFormula(formula) ? renderEquationSpan(formula) : escapeHtml(token));
+    }
     lastIndex = inlinePattern.lastIndex;
   }
 

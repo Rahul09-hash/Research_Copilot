@@ -60,10 +60,15 @@ def ingest_pdf(
 
     digest = sha256_file(staging_path)
     existing = db.find_document_by_sha(workspace_id, digest)
+    
+    is_dataset = file_name.lower().endswith(('.csv', '.xlsx'))
+    
     if existing:
         staging_path.unlink(missing_ok=True)
         existing_id = int(existing["id"])
-        if db.count_chunks_for_document(existing_id) == 0:
+        is_existing_dataset = existing["file_name"].lower().endswith(('.csv', '.xlsx'))
+        
+        if not is_existing_dataset and db.count_chunks_for_document(existing_id) == 0:
             return _process_existing_document(
                 settings,
                 db,
@@ -90,32 +95,69 @@ def ingest_pdf(
     destination = document_dir / f"{digest}_{file_name}"
     shutil.move(str(staging_path), destination)
 
-    extraction = _extract_pdf(destination)
-    document_id = db.add_document(
-        workspace_id=workspace_id,
-        chat_id=chat_id,
-        file_name=file_name,
-        file_path=str(destination),
-        mime_type="application/pdf",
-        sha256=digest,
-        title=extraction.metadata.get("title") or None,
-        author=extraction.metadata.get("author") or None,
-        page_count=extraction.page_count,
-        metadata=_with_ingest_metadata(extraction),
-    )
-    return _store_chunks_for_extraction(
-        db,
-        embedder,
-        vector_store,
-        document_id,
-        workspace_id,
-        chat_id,
-        file_name,
-        extraction,
-        settings.chunk_size,
-        settings.chunk_overlap,
-        is_duplicate=False,
-    )
+    if is_dataset:
+        import pandas as pd
+        try:
+            if file_name.lower().endswith('.csv'):
+                df = pd.read_csv(destination)
+            else:
+                df = pd.read_excel(destination)
+                
+            schema_info = {
+                "type": "dataset",
+                "columns": list(df.columns),
+                "dtypes": {str(k): str(v) for k, v in df.dtypes.items()},
+                "head": df.head(2).to_markdown()
+            }
+            document_id = db.add_document(
+                workspace_id=workspace_id,
+                chat_id=chat_id,
+                file_name=file_name,
+                file_path=str(destination),
+                mime_type="text/csv" if file_name.lower().endswith('.csv') else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                sha256=digest,
+                title=file_name,
+                author=None,
+                page_count=1,
+                metadata={"status": "success", "dataset_schema": schema_info},
+            )
+            return IngestResult(
+                document_id=document_id,
+                chunk_count=0,
+                is_duplicate=False,
+                page_count=1,
+                status="success",
+                message="Dataset ingested."
+            )
+        except Exception as e:
+            return IngestResult(document_id=0, chunk_count=0, is_duplicate=False, status="error", message=str(e))
+    else:
+        extraction = _extract_pdf(destination)
+        document_id = db.add_document(
+            workspace_id=workspace_id,
+            chat_id=chat_id,
+            file_name=file_name,
+            file_path=str(destination),
+            mime_type="application/pdf",
+            sha256=digest,
+            title=extraction.metadata.get("title") or None,
+            author=extraction.metadata.get("author") or None,
+            page_count=extraction.page_count,
+            metadata=_with_ingest_metadata(extraction),
+        )
+        return _store_chunks_for_extraction(
+            db,
+            embedder,
+            vector_store,
+            document_id,
+            workspace_id,
+            chat_id,
+            file_name,
+            extraction,
+            settings.chunk_size,
+            settings.chunk_overlap,
+            is_duplicate=False,
+        )
 
 
 def _process_existing_document(
@@ -130,6 +172,16 @@ def _process_existing_document(
     path: Path,
     is_duplicate: bool = False,
 ) -> IngestResult:
+    if file_name.lower().endswith(('.csv', '.xlsx')):
+        return IngestResult(
+            document_id=document_id,
+            chunk_count=0,
+            is_duplicate=is_duplicate,
+            page_count=1,
+            status="success",
+            message="Dataset schema refreshed."
+        )
+
     extraction = _extract_pdf(path)
     db.delete_chunks_for_document(document_id)
     db.update_document_ingestion(

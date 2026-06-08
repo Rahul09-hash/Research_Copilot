@@ -190,6 +190,83 @@ async def stream_chat(request: Request) -> StreamingResponse:
             yield json_line({"type": "delta", "text": piece})
         content = "".join(chunks)
         
+        code_blocks = re.findall(r'```python\n(.*?)(?:```|$)', content, re.DOTALL)
+            
+        if code_blocks:
+            yield json_line({"type": "status", "message": "Executing Data Analysis..."})
+            code = "\n".join(code_blocks)
+            code = code.replace("plt.show()", "plt.savefig('plot.png')")
+            
+            import sys, io, contextlib
+            plot_path = Path("plot.png")
+            if plot_path.exists():
+                plot_path.unlink()
+                
+            stdout_capture = io.StringIO()
+            exec_error = None
+            
+            # Pre-load datasets into the execution environment
+            import pandas as pd
+            import json
+            import uuid
+            exec_globals = globals().copy()
+            
+            try:
+                documents = services.db.list_documents(workspace_id)
+                df_idx = 1
+                for doc in documents:
+                    try:
+                        meta = json.loads(doc.get("metadata_json", "{}"))
+                        if meta.get("dataset_schema"):
+                            p = doc["file_path"]
+                            if p.lower().endswith(".csv"):
+                                exec_globals[f"df_{df_idx}"] = pd.read_csv(p)
+                            else:
+                                exec_globals[f"df_{df_idx}"] = pd.read_excel(p)
+                            df_idx += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+                
+            try:
+                with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stdout_capture):
+                    exec(code, exec_globals)
+            except Exception as e:
+                import traceback
+                exec_error = traceback.format_exc()
+                
+            exec_output = stdout_capture.getvalue()
+            if exec_error:
+                exec_output += f"\nError:\n{exec_error}"
+                
+            analysis_text = f"\n\n### Data Analysis Result\n"
+            if exec_output.strip():
+                analysis_text += f"```text\n{exec_output.strip()}\n```\n"
+            else:
+                analysis_text += "*(Code executed successfully)*\n"
+                
+            if plot_path.exists():
+                images_dir = services.settings.uploads_dir / str(workspace_id) / "images"
+                images_dir.mkdir(parents=True, exist_ok=True)
+                new_file_path = images_dir / f"plot_{uuid.uuid4().hex}.png"
+                import shutil
+                shutil.copy(plot_path, new_file_path)
+                
+                new_image_id = services.db.add_image(
+                    workspace_id, chat_id, "plot.png", str(new_file_path), "image/png"
+                )
+                analysis_text += f"\n\n![Generated Plot](/api/images/{new_image_id}/content)\n"
+                
+            # Remove the python code block entirely to hide it from the user interface
+            content = re.sub(r'```python\n(.*?)(?:```|$)', '', content, flags=re.DOTALL)
+            
+            # Remove any trailing newlines left over
+            content = content.strip()
+            
+            content += analysis_text
+            yield json_line({"type": "delta", "text": analysis_text})
+        
         used_numbers = set()
         for bracket_match in re.finditer(r'\[(.*?)\]', content):
             inner_text = bracket_match.group(1)
