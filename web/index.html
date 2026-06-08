@@ -66,7 +66,10 @@
         </div>
         <form id="chatForm" class="composer">
           <textarea id="promptInput" rows="2" placeholder="Ask about your research... (Paste images with Ctrl+V)"></textarea>
-          <button id="sendBtn" type="submit">Send</button>
+          <div style="display: flex; gap: 8px;">
+            <button id="micBtn" type="button" title="Click to start/stop recording" style="padding: 9px; width: 42px; display: flex; align-items: center; justify-content: center; font-size: 18px;">🎤</button>
+            <button id="sendBtn" type="submit" style="flex: 1;">Send</button>
+          </div>
         </form>
       </section>
 

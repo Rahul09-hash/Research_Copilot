@@ -453,7 +453,7 @@ textarea:focus {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 90px;
+  grid-template-columns: minmax(0, 1fr) 140px;
   gap: 10px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
@@ -475,6 +475,18 @@ textarea:focus {
 .button-grid button:hover {
   background: var(--accent-dark);
   border-color: var(--accent-dark);
+}
+
+#micBtn.recording {
+  background: #ef4444;
+  border-color: #dc2626;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 .file-btn {

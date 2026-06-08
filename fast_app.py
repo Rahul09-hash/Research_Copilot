@@ -487,6 +487,40 @@ async def not_found(_request: Request) -> PlainTextResponse:
     return PlainTextResponse("Not found", status_code=404)
 
 
+_whisper_pipeline = None
+
+async def transcribe(request: Request) -> JSONResponse:
+    global _whisper_pipeline
+    form = await request.form()
+    file = form.get("audio")
+    if not file:
+        return JSONResponse({"error": "No audio file provided."}, status_code=400)
+
+    content = await file.read()
+
+    def _do_transcribe(audio_bytes: bytes):
+        global _whisper_pipeline
+        import numpy as np
+        from transformers import pipeline
+        
+        if _whisper_pipeline is None:
+            _whisper_pipeline = pipeline("automatic-speech-recognition", model="openai/whisper-tiny")
+            
+        audio_data = np.frombuffer(audio_bytes, dtype=np.float32)
+        # Explicitly pass sampling rate
+        result = _whisper_pipeline({"raw": audio_data, "sampling_rate": 16000})
+        return result.get("text", "").strip()
+
+    try:
+        text = await run_in_threadpool(_do_transcribe, content)
+        return JSONResponse({"text": text})
+    except Exception as e:
+        import traceback
+        with open("whisper_error.log", "w") as f:
+            traceback.print_exc(file=f)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 routes = [
     Route("/", home),
     Route("/api/health", health),
@@ -513,6 +547,7 @@ routes = [
     Route("/api/compare", compare, methods=["POST"]),
     Route("/api/literature-review", literature_review, methods=["POST"]),
     Route("/api/export/{kind}", export_chat, methods=["POST"]),
+    Route("/api/transcribe", transcribe, methods=["POST"]),
     Mount("/web", StaticFiles(directory=WEB_DIR), name="web"),
 ]
 

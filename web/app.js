@@ -46,6 +46,7 @@ function bindEvents() {
   el("regenerateGraphBtn").addEventListener("click", () => loadGraph(true));
   el("literatureBtn").addEventListener("click", generateLiteratureReview);
   el("compareBtn").addEventListener("click", compareDocuments);
+  if (el("micBtn")) el("micBtn").addEventListener("click", toggleRecording);
   el("themeToggle").addEventListener("change", (event) => {
     setTheme(event.target.checked ? "dark" : "light");
   });
@@ -1239,4 +1240,119 @@ function setTheme(theme) {
   localStorage.setItem("rc-theme", theme);
   const toggle = el("themeToggle");
   if (toggle) toggle.checked = theme === "dark";
+}
+
+// --- Voice Recording Logic ---
+let audioContext;
+let audioProcessor;
+let mediaStream;
+let pcmChunks = [];
+let isRecording = false;
+let isTranscribingLive = false;
+let basePromptText = "";
+let lastLoudTime = Date.now();
+let liveTranscriptionInterval;
+let vadInterval;
+
+async function sendPartialAudio() {
+  if (isTranscribingLive || pcmChunks.length === 0 || !isRecording) return;
+  isTranscribingLive = true;
+  
+  const totalLen = pcmChunks.reduce((acc, val) => acc + val.length, 0);
+  const mergedPcm = new Float32Array(totalLen);
+  let offset = 0;
+  for (let chunk of pcmChunks) {
+    mergedPcm.set(chunk, offset);
+    offset += chunk.length;
+  }
+  
+  const formData = new FormData();
+  const blob = new Blob([mergedPcm.buffer], { type: "application/octet-stream" });
+  formData.append("audio", blob, "audio.raw");
+  
+  try {
+    const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+    const data = await res.json();
+    if (data.text && isRecording) {
+      const promptEl = document.getElementById("promptInput");
+      promptEl.value = (basePromptText ? basePromptText + " " : "") + data.text;
+    }
+  } catch (e) {
+    console.error("Live transcription error:", e);
+  } finally {
+    isTranscribingLive = false;
+  }
+}
+
+async function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false;
+  clearInterval(liveTranscriptionInterval);
+  clearInterval(vadInterval);
+  
+  const btn = document.getElementById("micBtn");
+  if (btn) btn.classList.remove("recording");
+  
+  if (audioProcessor) audioProcessor.disconnect();
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  if (audioContext) audioContext.close();
+  
+  const promptEl = document.getElementById("promptInput");
+  promptEl.placeholder = "Ask about your research... (Paste images with Ctrl+V)";
+  
+  // Final flush
+  await sendPartialAudio();
+}
+
+async function toggleRecording() {
+  if (isRecording) {
+    await stopRecording();
+    return;
+  }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+    
+    pcmChunks = [];
+    isRecording = true;
+    lastLoudTime = Date.now();
+    basePromptText = document.getElementById("promptInput").value.trim();
+    document.getElementById("promptInput").placeholder = "Listening... (speak now)";
+    
+    const btn = document.getElementById("micBtn");
+    if (btn) btn.classList.add("recording");
+    
+    audioProcessor.onaudioprocess = (e) => {
+      const inputData = e.inputBuffer.getChannelData(0);
+      pcmChunks.push(new Float32Array(inputData));
+      
+      let sum = 0;
+      for (let i = 0; i < inputData.length; i++) {
+        sum += inputData[i] * inputData[i];
+      }
+      const rms = Math.sqrt(sum / inputData.length);
+      if (rms > 0.015) {
+        lastLoudTime = Date.now();
+      }
+    };
+    
+    source.connect(audioProcessor);
+    audioProcessor.connect(audioContext.destination);
+    
+    // Live stream transcription
+    liveTranscriptionInterval = setInterval(sendPartialAudio, 1500);
+    
+    // VAD Auto-stop
+    vadInterval = setInterval(() => {
+      if (Date.now() - lastLoudTime > 2000) {
+        stopRecording();
+      }
+    }, 200);
+    
+  } catch (err) {
+    console.error(err);
+    alert("Could not access microphone.");
+  }
 }
