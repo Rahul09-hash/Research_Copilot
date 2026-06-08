@@ -186,7 +186,7 @@ function switchView(view) {
   refreshActiveView();
 }
 
-let currentImageId = 0;
+let currentImageIds = [];
 
 async function handlePaste(e) {
   const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -210,8 +210,11 @@ async function uploadImage(file) {
     const response = await fetch("/api/upload_image", { method: "POST", body: formData });
     const data = await response.json();
     if (data.error) throw new Error(data.error);
-    currentImageId = data.image_id;
-    el("imagePreview").src = `/api/images/${currentImageId}/content`;
+    currentImageIds.push(data.image_id);
+    const imgEl = document.createElement("img");
+    imgEl.src = `/api/images/${data.image_id}/content`;
+    imgEl.style.cssText = "max-height: 60px; border-radius: 4px; border: 1px solid var(--line);";
+    el("imagePreviewGallery").append(imgEl);
     el("imagePreviewContainer").classList.remove("hidden");
   } catch(e) {
     alert(e.message);
@@ -221,9 +224,9 @@ async function uploadImage(file) {
 }
 
 function clearImagePreview() {
-  currentImageId = 0;
+  currentImageIds = [];
   el("imagePreviewContainer").classList.add("hidden");
-  el("imagePreview").src = "";
+  el("imagePreviewGallery").innerHTML = "";
 }
 
 async function loadMessages() {
@@ -235,35 +238,61 @@ async function loadMessages() {
     ? `Showing the latest ${data.messages.length} messages. ${hidden} older messages are stored.`
     : "Ask questions grounded in uploaded PDFs.";
   for (const message of data.messages) {
-    addMessage(message.role, message.content, message.citations || []);
+    addMessage(message.role, message.content, message.citations || [], message.images || [], message.id);
   }
   scrollMessages();
 }
 
-function addMessage(role, content = "", citations = []) {
+function addMessage(role, content = "", citations = [], images = [], messageId = null) {
   const item = document.createElement("article");
   item.className = `message ${role}`;
+  if (messageId) {
+    item.id = `msg-${messageId}`;
+  }
   const label = document.createElement("span");
   label.className = "role";
   label.textContent = role;
+  
   const body = document.createElement("div");
   body.className = "message-body";
-  renderRichText(body, content);
+  
+  if (images && images.length) {
+    const gallery = document.createElement("div");
+    gallery.style.cssText = "display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;";
+    for (const img of images) {
+      const imgEl = document.createElement("img");
+      imgEl.src = `/api/images/${img.id}/content`;
+      imgEl.style.cssText = "max-height: 120px; border-radius: 4px; border: 1px solid var(--line); cursor: pointer;";
+      imgEl.onclick = () => window.openImageViewer(imgEl.src, "Image Preview");
+      gallery.append(imgEl);
+    }
+    body.append(gallery);
+  }
+  
+  const textBody = document.createElement("div");
+  renderRichText(textBody, content);
+  body.append(textBody);
+  
   item.append(label, body);
   if (citations.length) item.append(renderSources(citations));
   el("messages").append(item);
   scrollMessages();
-  return body;
+  return textBody;
 }
 
 async function sendMessage(event) {
   event.preventDefault();
   const input = el("promptInput");
   const prompt = input.value.trim();
-  if (!prompt && !currentImageId) return;
+  if (!prompt && !currentImageIds.length) return;
   input.value = "";
   setBusy(true);
-  addMessage("user", prompt);
+  
+  const tempImageIds = [...currentImageIds];
+  const imagesForRender = tempImageIds.map(id => ({id})); 
+  clearImagePreview();
+  
+  addMessage("user", prompt, [], imagesForRender);
   const assistantBody = addMessage("assistant", "");
   const queue = [];
   let typing = true;
@@ -276,12 +305,10 @@ async function sendMessage(event) {
       body: JSON.stringify({
         workspace_id: state.workspaceId,
         chat_id: state.chatId,
-        image_id: currentImageId,
+        image_ids: tempImageIds,
         prompt,
       }),
     });
-    
-    clearImagePreview();
     if (!response.body) throw new Error("Streaming is not available.");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -389,17 +416,35 @@ window.openPdfViewer = function(url, title) {
   el("pdfViewerPanel").classList.remove("hidden");
   el("pdfTitle").textContent = title || "Document Viewer";
   
-  // Browsers ignore hash changes on PDFs, so we must replace the iframe element to force a reload
+  el("imageViewerImg").classList.add("hidden");
+  el("imageViewerImg").src = "";
+  
+  el("pdfIframe").classList.remove("hidden");
   const iframe = el("pdfIframe");
   const newIframe = iframe.cloneNode();
   newIframe.src = url;
   iframe.replaceWith(newIframe);
 };
 
+window.openImageViewer = function(url, title) {
+  document.querySelector(".main").classList.add("split-layout");
+  el("pdfViewerPanel").classList.remove("hidden");
+  el("pdfTitle").textContent = title || "Image Viewer";
+  
+  el("pdfIframe").classList.add("hidden");
+  el("pdfIframe").src = "";
+  
+  el("imageViewerImg").classList.remove("hidden");
+  el("imageViewerImg").src = url;
+};
+
 window.closePdfViewer = function() {
   document.querySelector(".main").classList.remove("split-layout");
   el("pdfViewerPanel").classList.add("hidden");
   el("pdfIframe").src = "";
+  el("pdfIframe").classList.remove("hidden");
+  el("imageViewerImg").src = "";
+  el("imageViewerImg").classList.add("hidden");
 };
 
 
@@ -502,7 +547,7 @@ async function loadImages() {
     const preview = document.createElement("img");
     preview.src = `/api/images/${img.id}/content`;
     preview.style.cssText = "width: 100%; height: 150px; object-fit: contain; background: var(--bg); border-radius: 4px; cursor: pointer;";
-    preview.onclick = () => window.open(preview.src, '_blank');
+    preview.onclick = () => window.openImageViewer(preview.src, "Image Preview");
     
     const meta = document.createElement("div");
     meta.style.cssText = "font-size: 11px; color: var(--muted);";
@@ -520,6 +565,16 @@ async function loadImages() {
          state.chatId = img.chat_id;
          await loadMessages();
          switchView('chat');
+         
+         setTimeout(() => {
+           const msgEl = document.getElementById(`msg-${img.message_id}`);
+           if (msgEl) {
+             msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             msgEl.style.transition = 'background-color 0.5s ease';
+             msgEl.style.backgroundColor = 'var(--panel)';
+             setTimeout(() => msgEl.style.backgroundColor = 'transparent', 2000);
+           }
+         }, 100);
        };
     }
     

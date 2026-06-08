@@ -20,7 +20,7 @@ class PreparedAnswer:
     chunks: list[RetrievedChunk]
     citations: list[dict[str, Any]]
     messages: list[dict[str, str]]
-    b64_image: str | None = None
+    b64_images: list[str] | None = None
     fallback_content: str | None = None
 
 
@@ -43,7 +43,7 @@ class RAGEngine:
             content = self._fallback_answer(prepared.chunks, llm_result.error)
         return Answer(content=self.with_sources(content, prepared.citations), citations=prepared.citations)
 
-    def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_image: str | None = None) -> PreparedAnswer:
+    def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_images: list[str] | None = None) -> PreparedAnswer:
         chunks = self.retriever.retrieve(workspace_id, question)
         citations = _citations_from_chunks(chunks)
         if not chunks:
@@ -85,11 +85,11 @@ class RAGEngine:
                 f"Context:\n{context}\n\nQuestion: {question}"
             ),
         }
-        if b64_image:
-            user_message["images"] = [b64_image]
+        if b64_images:
+            user_message["images"] = b64_images
         messages.append(user_message)
             
-        return PreparedAnswer(chunks=chunks, citations=citations, messages=messages, b64_image=b64_image)
+        return PreparedAnswer(chunks=chunks, citations=citations, messages=messages, b64_images=b64_images)
 
     def stream_prepared(self, prepared: PreparedAnswer):
         if prepared.fallback_content:
@@ -98,7 +98,7 @@ class RAGEngine:
 
         emitted = False
         llm = self.llm
-        if prepared.b64_image:
+        if prepared.b64_images:
             llm = LocalLLM(self.llm.host, "llava", self.llm.num_ctx, self.llm.num_predict)
             
         try:

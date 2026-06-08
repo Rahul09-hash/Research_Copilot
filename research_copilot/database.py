@@ -195,7 +195,11 @@ class Database:
                 "SELECT * FROM message WHERE chat_id = ? ORDER BY id ASC",
                 (chat_id,),
             ).fetchall()
-        return _decode_messages(rows)
+            messages = _decode_messages(rows)
+            for msg in messages:
+                img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
+                msg["images"] = [dict(r) for r in img_rows]
+        return messages
 
     def get_recent_messages(self, chat_id: int, limit: int) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -208,7 +212,11 @@ class Database:
                 """,
                 (chat_id, limit),
             ).fetchall()
-        return list(reversed(_decode_messages(rows)))
+            messages = list(reversed(_decode_messages(rows)))
+            for msg in messages:
+                img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
+                msg["images"] = [dict(r) for r in img_rows]
+        return messages
 
     def count_messages(self, chat_id: int) -> int:
         with self.connect() as conn:

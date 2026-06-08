@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -162,41 +163,52 @@ async def stream_chat(request: Request) -> StreamingResponse:
     services = get_services()
     workspace_id = int(payload.get("workspace_id") or 0)
     chat_id = int(payload.get("chat_id") or 0)
-    image_id = int(payload.get("image_id") or 0)
+    image_ids = payload.get("image_ids") or []
     prompt = str(payload.get("prompt") or "").strip()
-    if not prompt:
-        return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt is required."})]))
+    if not prompt and not image_ids:
+        return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt or image is required."})]))
 
     def generate():
         services.db.add_message(chat_id, "user", prompt)
         
-        b64_image = None
-        if image_id:
-            image_record = services.db.get_image(image_id)
-            if image_record:
-                path = Path(image_record["file_path"])
-                if path.exists():
-                    with open(path, "rb") as img_file:
-                        b64_image = base64.b64encode(img_file.read()).decode("utf-8")
+        b64_images = []
+        if image_ids:
+            for i_id in image_ids:
+                image_record = services.db.get_image(i_id)
+                if image_record:
+                    path = Path(image_record["file_path"])
+                    if path.exists():
+                        with open(path, "rb") as img_file:
+                            b64_images.append(base64.b64encode(img_file.read()).decode("utf-8"))
         
         yield json_line({"type": "status", "message": "Retrieving local sources..."})
-        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt, b64_image)
+        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt, b64_images)
         yield json_line({"type": "status", "message": "Writing answer..."})
         chunks: list[str] = []
         for piece in services.rag.stream_prepared(prepared):
             chunks.append(piece)
             yield json_line({"type": "delta", "text": piece})
         content = "".join(chunks)
-        message_id = services.db.add_message(chat_id, "assistant", content, prepared.citations)
-        if image_id:
-            services.db.link_image_to_message(image_id, message_id)
+        
+        used_numbers = set()
+        for bracket_match in re.finditer(r'\[(.*?)\]', content):
+            inner_text = bracket_match.group(1)
+            for num_match in re.finditer(r'\d+', inner_text):
+                used_numbers.add(int(num_match.group(0)))
+                
+        filtered_citations = [c for c in prepared.citations if c["number"] in used_numbers]
+        
+        message_id = services.db.add_message(chat_id, "assistant", content, filtered_citations)
+        if image_ids:
+            for i_id in image_ids:
+                services.db.link_image_to_message(i_id, message_id)
             
         services.db.update_conversation_summary(chat_id)
         yield json_line(
             {
                 "type": "done",
                 "content": content,
-                "citations": prepared.citations,
+                "citations": filtered_citations,
             }
         )
 

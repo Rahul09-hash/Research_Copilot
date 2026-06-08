@@ -60,9 +60,9 @@
           <button id="refreshMessagesBtn">Refresh</button>
         </div>
         <div id="messages" class="messages"></div>
-        <div id="imagePreviewContainer" class="hidden" style="padding: 8px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; background: var(--bg);">
-          <img id="imagePreview" style="max-height: 60px; border-radius: 4px; border: 1px solid var(--line);" />
-          <button type="button" class="icon-btn" onclick="clearImagePreview()" title="Remove image">&#10005;</button>
+        <div id="imagePreviewContainer" class="hidden" style="padding: 8px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--bg);">
+          <div id="imagePreviewGallery" style="display: flex; gap: 8px;"></div>
+          <button type="button" class="icon-btn" onclick="clearImagePreview()" title="Remove all images">&#10005;</button>
         </div>
         <form id="chatForm" class="composer">
           <textarea id="promptInput" rows="2" placeholder="Ask about your research... (Paste images with Ctrl+V)"></textarea>
@@ -146,9 +146,10 @@
       <div id="pdfViewerPanel" class="hidden">
         <div class="pdf-header">
           <span id="pdfTitle">Document Viewer</span>
-          <button class="icon-btn" onclick="closePdfViewer()" title="Close PDF Viewer">&#10005;</button>
+          <button class="icon-btn" onclick="closePdfViewer()" title="Close Viewer">&#10005;</button>
         </div>
         <iframe id="pdfIframe" src=""></iframe>
+        <img id="imageViewerImg" src="" class="hidden" style="width: 100%; height: calc(100% - 40px); object-fit: contain; background: var(--bg);" />
       </div>
     </main>
 
