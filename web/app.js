@@ -34,7 +34,14 @@ function bindEvents() {
   el("addChatBtn").addEventListener("click", createChat);
   el("refreshMessagesBtn").addEventListener("click", loadMessages);
   el("chatForm").addEventListener("submit", sendMessage);
-  el("pdfInput").addEventListener("change", uploadPdfs);
+  el("promptInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      el("chatForm").dispatchEvent(new Event("submit"));
+    }
+  });
+  el("promptInput").addEventListener("paste", handlePaste);
+  el("pdfInput").addEventListener("change", uploadFiles);
   el("noteForm").addEventListener("submit", saveNote);
   el("regenerateGraphBtn").addEventListener("click", () => loadGraph(true));
   el("literatureBtn").addEventListener("click", generateLiteratureReview);
@@ -97,8 +104,13 @@ async function refreshActiveView() {
   if (state.activeView === "chat") await loadMessages();
   if (state.activeView === "documents") await loadDocuments();
   if (state.activeView === "notes") await loadNotes();
-  if (state.activeView === "graph") await loadGraph(false);
-  if (state.activeView === "exports") await loadExportDocuments();
+  if (state.activeView === "graph") {
+    loadGraph();
+  } else if (state.activeView === "images") {
+    loadImages();
+  } else if (state.activeView === "exports") {
+    await loadExportDocuments();
+  }
 }
 
 function renderWorkspaceOptions(workspaces) {
@@ -174,6 +186,46 @@ function switchView(view) {
   refreshActiveView();
 }
 
+let currentImageId = 0;
+
+async function handlePaste(e) {
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf("image") === 0) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      await uploadImage(file);
+      break;
+    }
+  }
+}
+
+async function uploadImage(file) {
+  const formData = new FormData();
+  formData.append("workspace_id", state.workspaceId);
+  formData.append("chat_id", state.chatId);
+  formData.append("file", file);
+  setBusy(true);
+  try {
+    const response = await fetch("/api/upload_image", { method: "POST", body: formData });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    currentImageId = data.image_id;
+    el("imagePreview").src = `/api/images/${currentImageId}/content`;
+    el("imagePreviewContainer").classList.remove("hidden");
+  } catch(e) {
+    alert(e.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function clearImagePreview() {
+  currentImageId = 0;
+  el("imagePreviewContainer").classList.add("hidden");
+  el("imagePreview").src = "";
+}
+
 async function loadMessages() {
   const data = await api(`/api/messages?chat_id=${state.chatId}`);
   const messages = el("messages");
@@ -208,7 +260,7 @@ async function sendMessage(event) {
   event.preventDefault();
   const input = el("promptInput");
   const prompt = input.value.trim();
-  if (!prompt) return;
+  if (!prompt && !currentImageId) return;
   input.value = "";
   setBusy(true);
   addMessage("user", prompt);
@@ -224,9 +276,12 @@ async function sendMessage(event) {
       body: JSON.stringify({
         workspace_id: state.workspaceId,
         chat_id: state.chatId,
+        image_id: currentImageId,
         prompt,
       }),
     });
+    
+    clearImagePreview();
     if (!response.body) throw new Error("Streaming is not available.");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -398,7 +453,7 @@ async function deleteDocument(documentId) {
   setBusy(false);
 }
 
-async function uploadPdfs(event) {
+async function uploadFiles(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
   setBusy(true);
@@ -430,6 +485,47 @@ async function reprocessDocument(documentId) {
   el("uploadStatus").textContent = `${result.page_count} pages, ${result.chunk_count} chunks. ${result.message || ""}`;
   await loadDocuments();
   setBusy(false);
+}
+
+async function loadImages() {
+  const data = await api(`/api/images?workspace_id=${state.workspaceId}`);
+  const list = el("imagesList");
+  list.innerHTML = "";
+  if (!data.images.length) {
+    list.innerHTML = '<div class="muted" style="grid-column: 1/-1;">No images uploaded yet. Paste an image into the chat to get started.</div>';
+    return;
+  }
+  for (const img of data.images) {
+    const div = document.createElement("div");
+    div.style.cssText = "display: flex; flex-direction: column; gap: 8px; background: var(--panel); padding: 8px; border: 1px solid var(--line); border-radius: 8px;";
+    
+    const preview = document.createElement("img");
+    preview.src = `/api/images/${img.id}/content`;
+    preview.style.cssText = "width: 100%; height: 150px; object-fit: contain; background: var(--bg); border-radius: 4px; cursor: pointer;";
+    preview.onclick = () => window.open(preview.src, '_blank');
+    
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size: 11px; color: var(--muted);";
+    meta.textContent = new Date(img.created_at + 'Z').toLocaleString();
+    
+    const btn = document.createElement("button");
+    btn.textContent = "Jump to Chat";
+    btn.style.width = "100%";
+    if (!img.chat_id) {
+       btn.disabled = true;
+       btn.textContent = "No chat linked";
+    } else {
+       btn.onclick = async () => {
+         el("chatSelect").value = img.chat_id;
+         state.chatId = img.chat_id;
+         await loadMessages();
+         switchView('chat');
+       };
+    }
+    
+    div.append(preview, meta, btn);
+    list.append(div);
+  }
 }
 
 async function loadNotes() {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import json
+import uuid
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -160,21 +162,35 @@ async def stream_chat(request: Request) -> StreamingResponse:
     services = get_services()
     workspace_id = int(payload.get("workspace_id") or 0)
     chat_id = int(payload.get("chat_id") or 0)
+    image_id = int(payload.get("image_id") or 0)
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt:
         return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt is required."})]))
 
     def generate():
         services.db.add_message(chat_id, "user", prompt)
+        
+        b64_image = None
+        if image_id:
+            image_record = services.db.get_image(image_id)
+            if image_record:
+                path = Path(image_record["file_path"])
+                if path.exists():
+                    with open(path, "rb") as img_file:
+                        b64_image = base64.b64encode(img_file.read()).decode("utf-8")
+        
         yield json_line({"type": "status", "message": "Retrieving local sources..."})
-        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt)
+        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt, b64_image)
         yield json_line({"type": "status", "message": "Writing answer..."})
         chunks: list[str] = []
         for piece in services.rag.stream_prepared(prepared):
             chunks.append(piece)
             yield json_line({"type": "delta", "text": piece})
         content = "".join(chunks)
-        services.db.add_message(chat_id, "assistant", content, prepared.citations)
+        message_id = services.db.add_message(chat_id, "assistant", content, prepared.citations)
+        if image_id:
+            services.db.link_image_to_message(image_id, message_id)
+            
         services.db.update_conversation_summary(chat_id)
         yield json_line(
             {
@@ -242,6 +258,49 @@ async def upload_pdf(request: Request) -> JSONResponse:
     )
 
 
+async def upload_image(request: Request) -> JSONResponse:
+    services = get_services()
+    form = await request.form()
+    workspace_id = int(form.get("workspace_id") or 0)
+    chat_id = int(form.get("chat_id") or 0)
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "file"):
+        return JSONResponse({"error": "Image file is required."}, status_code=400)
+    
+    images_dir = services.settings.uploads_dir / str(workspace_id) / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    
+    filename = upload.filename or "image.png"
+    ext = filename.split(".")[-1] if "." in filename else "png"
+    file_path = images_dir / f"{uuid.uuid4().hex}.{ext}"
+    
+    with open(file_path, "wb") as buffer:
+        buffer.write(upload.file.read())
+        
+    image_id = await run_in_threadpool(
+        services.db.add_image,
+        workspace_id, chat_id, filename, str(file_path), upload.content_type or "image/png"
+    )
+    return JSONResponse({"image_id": image_id})
+
+
+async def get_images(request: Request) -> JSONResponse:
+    workspace_id = int(request.query_params.get("workspace_id", "0"))
+    images = await run_in_threadpool(get_services().db.list_images, workspace_id)
+    return JSONResponse({"images": images})
+
+
+async def get_image_content(request: Request) -> FileResponse | JSONResponse:
+    image_id = int(request.path_params["image_id"])
+    image = await run_in_threadpool(get_services().db.get_image, image_id)
+    if not image:
+        return JSONResponse({"error": "Image not found."}, status_code=404)
+    path = Path(image["file_path"])
+    if not path.exists():
+        return JSONResponse({"error": "Image file is missing on disk."}, status_code=404)
+    return FileResponse(path, media_type=image["mime_type"])
+
+
 async def reprocess_pdf(request: Request) -> JSONResponse:
     services = get_services()
     document_id = int(request.path_params["document_id"])
@@ -279,6 +338,7 @@ async def delete_pdf(request: Request) -> JSONResponse:
 
     await run_in_threadpool(_do_delete)
     return JSONResponse({"status": "deleted"})
+
 
 async def notes(request: Request) -> JSONResponse:
     services = get_services()
@@ -363,6 +423,9 @@ routes = [
     Route("/api/documents/{document_id:int}/reprocess", reprocess_pdf, methods=["POST"]),
     Route("/api/documents/{document_id:int}", delete_pdf, methods=["DELETE"]),
     Route("/api/upload", upload_pdf, methods=["POST"]),
+    Route("/api/upload_image", upload_image, methods=["POST"]),
+    Route("/api/images", get_images, methods=["GET"]),
+    Route("/api/images/{image_id:int}/content", get_image_content, methods=["GET"]),
     Route("/api/notes", notes, methods=["GET", "POST"]),
     Route("/api/graph", graph, methods=["GET"]),
     Route("/api/compare", compare, methods=["POST"]),

@@ -20,6 +20,7 @@ class PreparedAnswer:
     chunks: list[RetrievedChunk]
     citations: list[dict[str, Any]]
     messages: list[dict[str, str]]
+    b64_image: str | None = None
     fallback_content: str | None = None
 
 
@@ -42,7 +43,7 @@ class RAGEngine:
             content = self._fallback_answer(prepared.chunks, llm_result.error)
         return Answer(content=self.with_sources(content, prepared.citations), citations=prepared.citations)
 
-    def prepare_answer(self, workspace_id: int, chat_id: int, question: str) -> PreparedAnswer:
+    def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_image: str | None = None) -> PreparedAnswer:
         chunks = self.retriever.retrieve(workspace_id, question)
         citations = _citations_from_chunks(chunks)
         if not chunks:
@@ -76,15 +77,19 @@ class RAGEngine:
                     "of inventing it."
                 ),
             },
-            {
-                "role": "user",
-                "content": (
-                    f"Conversation memory:\n{memory or 'None'}\n\n"
-                    f"Context:\n{context}\n\nQuestion: {question}"
-                ),
-            },
         ]
-        return PreparedAnswer(chunks=chunks, citations=citations, messages=messages)
+        user_message = {
+            "role": "user",
+            "content": (
+                f"Conversation memory:\n{memory or 'None'}\n\n"
+                f"Context:\n{context}\n\nQuestion: {question}"
+            ),
+        }
+        if b64_image:
+            user_message["images"] = [b64_image]
+        messages.append(user_message)
+            
+        return PreparedAnswer(chunks=chunks, citations=citations, messages=messages, b64_image=b64_image)
 
     def stream_prepared(self, prepared: PreparedAnswer):
         if prepared.fallback_content:
@@ -92,8 +97,12 @@ class RAGEngine:
             return
 
         emitted = False
+        llm = self.llm
+        if prepared.b64_image:
+            llm = LocalLLM(self.llm.host, "llava", self.llm.num_ctx, self.llm.num_predict)
+            
         try:
-            for chunk in self.llm.stream_chat(prepared.messages):
+            for chunk in llm.stream_chat(prepared.messages):
                 emitted = True
                 yield chunk
             if not emitted:

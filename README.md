@@ -1,122 +1,95 @@
 # Research Copilot
 
-Research Copilot is a fully local research workspace for persistent research chats, PDF ingestion, hybrid retrieval, citation-grounded RAG, notes, document comparison, knowledge graphs, and exports.
+Research Copilot is a powerful, fully-local Retrieval-Augmented Generation (RAG) application designed specifically for researchers, students, and academics. It allows you to upload large collections of PDFs, perform high-speed Optical Character Recognition (OCR), extract chemical and mathematical formulas, and interact with the text using a fully local AI engine.
 
-The app is designed for offline use. It stores application state in SQLite, vectors in a local Qdrant store, files under the project `data` directory, and uses local Ollama models for generation.
+Because this runs entirely on your hardware, **your data remains 100% private.**
 
-## Features
+---
 
-- Fast browser-native local UI served by Starlette/Uvicorn
-- Optional Streamlit fallback
-- Workspace and chat management
-- Permanent chat history with exact restore
-- PDF upload and SHA256 duplicate detection
-- PyMuPDF metadata extraction
-- Scanned-PDF detection with OCR-ready reprocessing
-- Recursive chunking with 800 character chunks and 150 character overlap
-- Low-RAM hash embeddings by default, with optional `BAAI/bge-small-en-v1.5`
-- Local Qdrant vector store
-- BM25 keyword search and hybrid retrieval
-- Optional `BAAI/bge-reranker-base` reranking
-- Citation-grounded answers through Ollama, defaulting to the lighter `llama3.2:latest`
-- Conversation memory summaries
-- Notes linked to workspaces and chats
-- Document comparison
-- Literature review draft generation
-- Knowledge graph generation and PyVis visualization
-- Markdown, DOCX, and PDF exports
-- Unit tests
+## ✨ Features
 
-## Quick Start
+- **100% Local Processing:** Uses `Ollama` for AI generation and `ChromaDB` for vector retrieval. No data is sent to the cloud.
+- **Advanced PDF Ingestion:** Upload any PDF. If it's a scanned document without embedded text, it automatically falls back to Tesseract OCR to extract the raw images.
+- **Smart Citations:** Ask questions about your literature and get perfectly formatted markdown citations (`[1]`, `[2]`) that correspond exactly to chunks of your uploaded texts. Clicking a citation instantly opens the PDF side-by-side.
+- **Knowledge Graphs:** Automatically generates interactive visual relationship graphs of the most important concepts and entities spanning across your entire workspace.
+- **Document Comparison:** Select two papers and instantly generate a lexical comparison highlighting shared themes and distinct focus areas.
+- **Literature Reviews:** With one click, synthesize a comprehensive literature review from all documents in your current workspace.
+- **Exports:** Export your entire chat history, including AI answers and citations, cleanly to Markdown, PDF, or DOCX formats.
+- **Native Desktop App Mode:** Run the application as a standalone, immersive desktop window (via WebView) without needing to use a standard web browser.
 
-```powershell
-cd D:\Research_Copilot
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+---
+
+## 🛠️ Prerequisites
+
+To run this application, you need the following installed on your machine:
+
+1. **Python 3.10+**: Make sure Python is in your system PATH.
+2. **Ollama**: Download and install [Ollama](https://ollama.com/) to run the local LLM.
+   - Once installed, open your terminal and pull a fast model (e.g., Llama 3):
+     ```bash
+     ollama run llama3:8b-instruct
+     ```
+3. **Tesseract OCR (Optional but highly recommended)**: Required for reading "scanned" PDFs that lack a native text layer.
+   - **Windows:** Download the installer from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). The app will automatically detect it if installed in `C:\Program Files\Tesseract-OCR`.
+
+---
+
+## 🚀 Installation
+
+1. **Clone or Download** this repository to your local machine.
+2. **Open a terminal** in the project directory.
+3. **Create a virtual environment** (recommended):
+   ```bash
+   python -m venv .venv
+   ```
+4. **Activate the virtual environment**:
+   - On Windows:
+     ```bash
+     .venv\Scripts\activate
+     ```
+   - On Mac/Linux:
+     ```bash
+     source .venv/bin/activate
+     ```
+5. **Install the required Python packages**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+## 🖥️ How to Run
+
+You have two options for running Research Copilot:
+
+### Option A: Standard Web Server (Browser Mode)
+Run the FastAPI backend directly. This is great for active development or if you prefer using Chrome/Edge.
+
+```bash
+python fast_app.py
 ```
+*Then, open your web browser and navigate to `http://localhost:8502`*
 
-Install local Ollama models:
+### Option B: Native Desktop Application
+Run the app in a standalone, immersive desktop window using `pywebview`. It behaves exactly like a native Windows application.
 
-```powershell
-ollama pull llama3.2
+```bash
+python desktop_app.py
 ```
+*A new desktop window will automatically launch and connect to the local server.*
 
-The app defaults to a low-RAM profile:
+---
 
-```text
-RC_EMBEDDING_PROVIDER=hash
-RC_RERANKER_ENABLED=false
-RC_OLLAMA_MODEL=llama3.2:latest
-RC_RETRIEVAL_K=4
-RC_MAX_CONTEXT_CHARS=3600
-```
+## ⚙️ Architecture
 
-For higher retrieval quality on a machine with more RAM, set `RC_EMBEDDING_PROVIDER=sentence-transformers` and `RC_RERANKER_ENABLED=true`. The embedding and reranker models are loaded through `sentence-transformers` and cached inside `data/models` by default. For strict offline use, download/cache these models before disconnecting:
+* **Backend:** FastAPI (Python)
+* **Frontend:** Vanilla JS / HTML / CSS (No heavy JS frameworks, blazingly fast)
+* **Vector Database:** ChromaDB
+* **Embeddings:** `sentence-transformers` (runs locally)
+* **LLM Engine:** Ollama API
+* **Graphing Engine:** PyVis / NetworkX
 
-```powershell
-$env:RC_MODELS_DIR='D:\Research_Copilot\data\models'
-python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('BAAI/bge-small-en-v1.5', cache_folder=r'D:\Research_Copilot\data\models'); CrossEncoder('BAAI/bge-reranker-base', cache_folder=r'D:\Research_Copilot\data\models')"
-```
+## 💡 Troubleshooting
 
-Run the faster local UI:
-
-```powershell
-uvicorn fast_app:app --host 127.0.0.1 --port 8501
-```
-
-Open:
-
-```text
-http://localhost:8501
-```
-
-Streamlit is still available as a fallback:
-
-```powershell
-streamlit run app.py --server.fileWatcherType=none --browser.gatherUsageStats=false
-```
-
-## Local Data Layout
-
-```text
-data/
-  research_copilot.sqlite
-  qdrant/
-  uploads/
-  exports/
-  graphs/
-  models/
-```
-
-Override paths and models with environment variables from `.env.example`.
-
-## Tests
-
-```powershell
-pytest
-```
-
-The unit tests focus on durable local behavior: chunking, SHA256 hashing, and SQLite persistence.
-
-## Docker
-
-The Docker image runs the Streamlit app. Ollama should run on the host unless you extend the compose file with an Ollama service.
-
-```powershell
-docker compose up --build
-```
-
-## Notes
-
-If Ollama or sentence-transformer models are not available yet, the app still stores chats, ingests PDFs, builds chunks, supports notes, and exports data. RAG responses will show the relevant citations and tell you what local model dependency is missing.
-
-Scanned/image-only PDFs need Tesseract OCR installed for chunking. Without it, the app still stores the PDF, counts pages correctly, and marks the document as `ocr_unavailable` instead of pretending it read zero pages. After installing Tesseract, use the document card's Reprocess button.
-
-Chat citations are stored separately from answer text and shown as compact links to the local PDF page and line range when available.
-
-For best laptop responsiveness, keep `qwen3:8b` unloaded when you are not using it:
-
-```powershell
-ollama stop qwen3:8b
-```
+* **"LLM did not answer" Timeout**: This usually occurs when you try to run a model that is too heavy for your computer's RAM/VRAM. Try pulling a smaller model like `phi3:mini` or `qwen2:1.5b-instruct` and using that instead.
+* **Tesseract Not Found**: Ensure you installed the 64-bit Windows version of Tesseract. The code looks for it in `C:\Program Files\Tesseract-OCR\tessdata`. If you installed it elsewhere, add a `TESSDATA_PREFIX` System Environment Variable pointing to your `tessdata` folder.

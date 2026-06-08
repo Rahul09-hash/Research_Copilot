@@ -105,12 +105,23 @@ class Database:
                     workspace_id INTEGER NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
                     source_entity_id INTEGER NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
                     target_entity_id INTEGER NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
-                    label TEXT NOT NULL DEFAULT 'related_to',
+                    label TEXT NOT NULL,
                     weight REAL NOT NULL DEFAULT 1.0,
-                    document_id INTEGER REFERENCES document(id) ON DELETE CASCADE,
-                    chunk_id INTEGER REFERENCES document_chunk(id) ON DELETE CASCADE,
+                    document_id INTEGER REFERENCES document(id) ON DELETE SET NULL,
+                    chunk_id INTEGER REFERENCES document_chunk(id) ON DELETE SET NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(workspace_id, source_entity_id, target_entity_id, label, document_id, chunk_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS image (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_id INTEGER NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                    chat_id INTEGER REFERENCES chat(id) ON DELETE SET NULL,
+                    message_id INTEGER REFERENCES message(id) ON DELETE SET NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS conversation_summary (
@@ -280,6 +291,33 @@ class Database:
     def delete_document(self, document_id: int) -> None:
         with self.connect() as conn:
             conn.execute("DELETE FROM document WHERE id = ?", (document_id,))
+            conn.commit()
+
+    def add_image(self, workspace_id: int, chat_id: int, file_name: str, file_path: str, mime_type: str) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO image (workspace_id, chat_id, file_name, file_path, mime_type) VALUES (?, ?, ?, ?, ?)",
+                (workspace_id, chat_id or None, file_name, file_path, mime_type),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_image(self, image_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM image WHERE id = ?", (image_id,)).fetchone()
+            return dict(row) if row else None
+
+    def list_images(self, workspace_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM image WHERE workspace_id = ? ORDER BY created_at DESC", (workspace_id,)
+            )
+            return [dict(row) for row in cursor]
+
+    def link_image_to_message(self, image_id: int, message_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE image SET message_id = ? WHERE id = ?", (message_id, image_id))
+            conn.commit()
 
     def add_chunks(self, chunks: Iterable[dict[str, Any]]) -> list[int]:
         inserted: list[int] = []

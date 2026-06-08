@@ -38,6 +38,7 @@
         <button class="active" data-view="chat">Chat</button>
         <button data-view="documents">Documents</button>
         <button data-view="notes">Notes</button>
+        <button data-view="images">Images</button>
         <button data-view="graph">Graph</button>
         <button data-view="exports">Exports</button>
       </nav>
@@ -59,8 +60,12 @@
           <button id="refreshMessagesBtn">Refresh</button>
         </div>
         <div id="messages" class="messages"></div>
+        <div id="imagePreviewContainer" class="hidden" style="padding: 8px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; background: var(--bg);">
+          <img id="imagePreview" style="max-height: 60px; border-radius: 4px; border: 1px solid var(--line);" />
+          <button type="button" class="icon-btn" onclick="clearImagePreview()" title="Remove image">&#10005;</button>
+        </div>
         <form id="chatForm" class="composer">
-          <textarea id="promptInput" rows="2" placeholder="Ask about your research..."></textarea>
+          <textarea id="promptInput" rows="2" placeholder="Ask about your research... (Paste images with Ctrl+V)"></textarea>
           <button id="sendBtn" type="submit">Send</button>
         </form>
       </section>
@@ -93,6 +98,16 @@
           <button type="submit">Save note</button>
         </form>
         <div id="notesList" class="list"></div>
+      </section>
+
+      <section id="imagesView" class="view">
+        <div class="panel-head">
+          <div>
+            <h2>Images</h2>
+            <p>Pasted and uploaded images from your chats.</p>
+          </div>
+        </div>
+        <div id="imagesList" class="list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;"></div>
       </section>
 
       <section id="graphView" class="view">
@@ -137,6 +152,6 @@
       </div>
     </main>
 
-    <script src="/web/app.js?v=10"></script>
+    <script src="/web/app.js?v=11"></script>
   </body>
 </html>

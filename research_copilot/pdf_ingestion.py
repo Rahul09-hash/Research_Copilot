@@ -244,6 +244,22 @@ def _extract_pdf(path: Path) -> PdfExtraction:
     except Exception as e:
         print(f"pymupdf4llm extraction failed: {e}")
 
+    tessdata = None
+    if os.name == "nt" and not os.environ.get("TESSDATA_PREFIX"):
+        common_paths = [
+            r"C:\Program Files\Tesseract-OCR\tessdata",
+            r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
+            r"D:\Program Files\Tesseract-OCR\tessdata",
+            r"C:\msys64\mingw64\share\tessdata",
+        ]
+        for tpath in common_paths:
+            if os.path.exists(tpath):
+                tessdata = tpath
+                break
+
+    pages_needing_ocr = []
+    page_texts = {}
+
     for index, page in enumerate(doc, start=1):
         text = ""
         if index - 1 < len(md_chunks):
@@ -252,32 +268,49 @@ def _extract_pdf(path: Path) -> PdfExtraction:
         if not text:
             text = page.get_text("text", sort=True).strip()
             
-        if not text and ocr_available:
-            saw_textless_page = True
-            text, ocr_error = _try_ocr_page(page)
-            if ocr_error:
-                ocr_available = False
-        elif not text:
-            saw_textless_page = True
-            
-        lines = _clean_lines(text)
-        if lines:
-            pages.append(ExtractedPage(page_number=index, lines=lines))
+        if not text:
+            pages_needing_ocr.append(index - 1)
+        else:
+            page_texts[index - 1] = text
             
     page_count = doc.page_count
     doc.close()
 
+    ocr_error = ""
+    saw_textless_page = len(pages_needing_ocr) > 0
+
+    if pages_needing_ocr:
+        import concurrent.futures
+        # PyMuPDF Document objects are not thread-safe, but opening a separate 
+        # Document object per thread allows fully parallel OCR processing.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
+            futures = [
+                executor.submit(_ocr_page_worker, str(path), p_idx, tessdata)
+                for p_idx in pages_needing_ocr
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                p_idx, text, err = future.result()
+                if err:
+                    ocr_error = err
+                page_texts[p_idx] = text
+
+    for index in range(page_count):
+        text = page_texts.get(index, "")
+        lines = _clean_lines(text)
+        if lines:
+            pages.append(ExtractedPage(page_number=index + 1, lines=lines))
+
     if pages:
         if saw_textless_page and ocr_error:
             status = "partial_text"
-            message = f"Some pages had no selectable text. OCR was unavailable: {ocr_error}"
+            message = f"Some pages had no selectable text. OCR encountered errors: {ocr_error}"
         else:
             status = "ready"
             message = "PDF text extracted."
     elif page_count:
         status = "ocr_unavailable" if ocr_error else "empty_text"
         message = (
-            f"This PDF has {page_count} pages but no selectable text. OCR was unavailable: {ocr_error}"
+            f"This PDF has {page_count} pages but no selectable text. OCR encountered errors: {ocr_error}"
             if ocr_error
             else f"This PDF has {page_count} pages but no selectable text."
         )
@@ -289,28 +322,21 @@ def _extract_pdf(path: Path) -> PdfExtraction:
 
 import os
 
-def _try_ocr_page(page: fitz.Page) -> tuple[str, str]:
-    tessdata = None
-    if os.name == "nt" and not os.environ.get("TESSDATA_PREFIX"):
-        common_paths = [
-            r"C:\Program Files\Tesseract-OCR\tessdata",
-            r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
-            r"D:\Program Files\Tesseract-OCR\tessdata",
-            r"C:\msys64\mingw64\share\tessdata",
-        ]
-        for path in common_paths:
-            if os.path.exists(path):
-                tessdata = path
-                break
-                
+def _ocr_page_worker(path: str, index: int, tessdata: str | None) -> tuple[int, str, str]:
+    import fitz
+    doc = fitz.open(path)
+    page = doc[index]
     try:
         if tessdata:
-            textpage = page.get_textpage_ocr(language="eng", dpi=150, full=True, tessdata=tessdata)
+            textpage = page.get_textpage_ocr(language="eng", dpi=100, full=True, tessdata=tessdata)
         else:
-            textpage = page.get_textpage_ocr(language="eng", dpi=150, full=True)
-        return page.get_text("text", textpage=textpage).strip(), ""
+            textpage = page.get_textpage_ocr(language="eng", dpi=100, full=True)
+        text = page.get_text("text", textpage=textpage).strip()
+        doc.close()
+        return index, text, ""
     except Exception as exc:
-        return "", f"{exc.__class__.__name__}: {exc}"
+        doc.close()
+        return index, "", f"{exc.__class__.__name__}: {exc}"
 
 
 def _clean_lines(text: str) -> list[str]:
