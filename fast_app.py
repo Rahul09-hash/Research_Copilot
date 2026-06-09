@@ -165,6 +165,8 @@ async def stream_chat(request: Request) -> StreamingResponse:
     chat_id = int(payload.get("chat_id") or 0)
     image_ids = payload.get("image_ids") or []
     prompt = str(payload.get("prompt") or "").strip()
+    is_deep_research = payload.get("is_deep_research", False)
+    is_data_analysis = payload.get("is_data_analysis", False)
     if not prompt and not image_ids:
         return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt or image is required."})]))
 
@@ -184,8 +186,26 @@ async def stream_chat(request: Request) -> StreamingResponse:
                         with open(path, "rb") as img_file:
                             b64_images.append(base64.b64encode(img_file.read()).decode("utf-8"))
         
+        if is_deep_research:
+            chunks: list[str] = []
+            for piece in services.rag.stream_deep_research(workspace_id, chat_id, prompt):
+                if isinstance(piece, dict):
+                    yield json_line(piece)
+                else:
+                    chunks.append(piece)
+                    yield json_line({"type": "delta", "text": piece})
+            content = "".join(chunks)
+            
+            # Remove any hallucinated python code blocks
+            content = re.sub(r'```python\n(.*?)(?:```|$)', '', content, flags=re.DOTALL).strip()
+            
+            message_id = services.db.add_message(chat_id, "assistant", content, [])
+            services.db.update_conversation_summary(chat_id)
+            yield json_line({"type": "done", "content": content, "citations": []})
+            return
+
         yield json_line({"type": "status", "message": "Retrieving local sources..."})
-        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt, b64_images)
+        prepared = services.rag.prepare_answer(workspace_id, chat_id, prompt, b64_images, is_data_analysis=is_data_analysis)
         yield json_line({"type": "status", "message": "Writing answer..."})
         chunks: list[str] = []
         for piece in services.rag.stream_prepared(prepared):

@@ -43,7 +43,7 @@ class RAGEngine:
             content = self._fallback_answer(prepared.chunks, llm_result.error)
         return Answer(content=self.with_sources(content, prepared.citations), citations=prepared.citations)
 
-    def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_images: list[str] | None = None) -> PreparedAnswer:
+    def prepare_answer(self, workspace_id: int, chat_id: int, question: str, b64_images: list[str] | None = None, is_data_analysis: bool = False) -> PreparedAnswer:
         chunks = self.retriever.retrieve(workspace_id, question)
         citations = _citations_from_chunks(chunks)
         
@@ -62,51 +62,68 @@ class RAGEngine:
             except Exception:
                 pass
 
-        if not chunks and not datasets:
+        if not chunks and not (datasets and is_data_analysis):
+            if datasets and not is_data_analysis:
+                msg = (
+                    "I see you have uploaded CSV/Excel datasets. "
+                    "To generate plots or perform numerical analysis on them, "
+                    "please toggle **Data Analyst Mode ON** below the chat."
+                )
+            else:
+                msg = (
+                    "I could not find uploaded document context for that yet. "
+                    "Add PDFs or Datasets in the Documents tab and ask again."
+                )
+            
             return PreparedAnswer(
                 chunks=[],
                 citations=[],
                 messages=[],
-                fallback_content=(
-                    "I could not find uploaded document context for that yet. "
-                    "Add PDFs or Datasets in the Documents tab and ask again."
-                ),
+                fallback_content=msg,
             )
 
         context = _format_context(chunks, self.settings.max_context_chars)
         memory = self.db.get_conversation_summary(chat_id)
+
+        system_content = (
+            "You are Research Copilot, a local research assistant. Answer ONLY from the supplied Context and Knowledge Graph Facts. "
+            "CRITICAL: The Knowledge Graph Facts are explicit connections pre-extracted from the documents. Weigh them heavily when answering relational questions. "
+            "CRITICAL: You MUST use proper Markdown formatting. Break your answer into logical sections using headings (e.g. ## Heading) and separate paragraphs with clear line breaks. "
+            "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
+            "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
+            "If the context is insufficient, say so. "
+            "For mathematics, physics, statistics, algorithms, and chemistry, explain the reasoning step by step "
+            "in plain language and keep standalone formulas inside $$ ... $$ blocks. Use simple LaTeX only inside "
+            "math blocks, such as \\frac{a}{b}, x_i, x^2, \\sqrt{x}, \\sum, \\int, and Greek commands. "
+            "Do not put raw backslash math in normal prose. For chemical reactions, write reactions as "
+            "$$\\ce{CH4 + 2 O2 -> CO2 + 2 H2O}$$ style equations when the context supports them. "
+            "If an equation or reaction is not visible in the retrieved context, say that it is not visible instead "
+            "of inventing it. "
+        )
+        
+        if is_data_analysis and datasets:
+            system_content += (
+                "If tabular datasets (CSV/Excel) are available, you may write Python code to analyze them using pandas. "
+                "CRITICAL FOR CODE: The python environment has ALREADY pre-loaded the datasets into pandas DataFrames named `df_1`, `df_2`, etc. "
+                "DO NOT use `pd.read_csv`. Just use the pre-loaded `df_1` DataFrame directly! "
+                "You MUST use `pandas`, `numpy`, `matplotlib.pyplot`, and `seaborn` for analysis and plotting. "
+                "If asked to operate on 'numerical' columns, use `df.select_dtypes(include='number').columns`. "
+                "To execute python code, wrap ALL code inside a SINGLE ````python ... ```` block. "
+                "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`.\n\n"
+                "--- DATA VISUALIZATION GUIDELINES ---\n"
+                "When generating plots, you must act as an Expert Data Scientist and ALWAYS follow these aesthetic rules without the user asking:\n"
+                "1. Figure Size: Make figures large and readable (e.g., `plt.figure(figsize=(12, 6))` for single plots, `(20, 15)` for massive grids).\n"
+                "2. Distributions / EDA: If asked for 'EDA', 'distributions', or 'histograms' of the dataset, automatically find all numerical columns and create a grid of subplots (`fig, axes = plt.subplots(...)`). You MUST pass the `ax` parameter to seaborn (e.g., `sns.histplot(data=df_1, x=col, kde=True, ax=axes.flatten()[i])`) so plots do not overlap! Remove any empty subplots using `ax.set_visible(False)`.\n"
+                "3. Polish: Always add titles to subplots, label your axes, and call `plt.tight_layout()` at the end."
+            )
+
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are Research Copilot, a local research assistant. Answer ONLY from the supplied Context and Knowledge Graph Facts. "
-                    "CRITICAL: The Knowledge Graph Facts are explicit connections pre-extracted from the documents. Weigh them heavily when answering relational questions. "
-                    "CRITICAL: You MUST use proper Markdown formatting. Break your answer into logical sections using headings (e.g. ## Heading) and separate paragraphs with clear line breaks. "
-                    "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
-                    "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
-                    "If the context is insufficient, say so. "
-                    "For mathematics, physics, statistics, algorithms, and chemistry, explain the reasoning step by step "
-                    "in plain language and keep standalone formulas inside $$ ... $$ blocks. Use simple LaTeX only inside "
-                    "math blocks, such as \\frac{a}{b}, x_i, x^2, \\sqrt{x}, \\sum, \\int, and Greek commands. "
-                    "Do not put raw backslash math in normal prose. For chemical reactions, write reactions as "
-                    "$$\\ce{CH4 + 2 O2 -> CO2 + 2 H2O}$$ style equations when the context supports them. "
-                    "If an equation or reaction is not visible in the retrieved context, say that it is not visible instead "
-                    "of inventing it. "
-                    "If tabular datasets (CSV/Excel) are available, you may write Python code to analyze them using pandas. "
-                    "CRITICAL FOR CODE: The python environment has ALREADY pre-loaded the datasets into pandas DataFrames named `df_1`, `df_2`, etc. "
-                    "DO NOT use `pd.read_csv`. Just use the pre-loaded `df_1` DataFrame directly! "
-                    "You MUST use `pandas`, `numpy`, `matplotlib.pyplot`, and `seaborn` for analysis and plotting. "
-                    "If asked to operate on 'numerical' columns, use `df.select_dtypes(include='number').columns`. "
-                    "To execute python code, wrap ALL code inside a SINGLE ````python ... ```` block. "
-                    "Use `print()` to output text answers. NEVER use `plt.show()`. ALWAYS save plots explicitly to `plot.png` using `plt.savefig('plot.png')`.\n\n"
-                    "--- DATA VISUALIZATION GUIDELINES ---\n"
-                    "When generating plots, you must act as an Expert Data Scientist and ALWAYS follow these aesthetic rules without the user asking:\n"
-                    "1. Figure Size: Make figures large and readable (e.g., `plt.figure(figsize=(12, 6))` for single plots, `(20, 15)` for massive grids).\n"
-                    "2. Distributions / EDA: If asked for 'EDA', 'distributions', or 'histograms' of the dataset, automatically find all numerical columns and create a grid of subplots (`fig, axes = plt.subplots(...)`). You MUST pass the `ax` parameter to seaborn (e.g., `sns.histplot(data=df_1, x=col, kde=True, ax=axes.flatten()[i])`) so plots do not overlap! Remove any empty subplots using `ax.set_visible(False)`.\n"
-                    "3. Polish: Always add titles to subplots, label your axes, and call `plt.tight_layout()` at the end."
-                ),
+                "content": system_content,
             },
         ]
+        
         graph_facts = self.db.search_graph_context(workspace_id, question)
         graph_context = ""
         if graph_facts:
@@ -116,7 +133,7 @@ class RAGEngine:
             graph_context = "Knowledge Graph Facts (Explicit Relationships):\n" + "\n".join(f"- {fact}" for fact in graph_facts) + "\n\n"
 
         dataset_context = ""
-        if datasets:
+        if is_data_analysis and datasets:
             dataset_context = "Available Datasets (PRE-LOADED in Python):\n"
             df_idx = 1
             for ds in datasets:
@@ -161,7 +178,42 @@ class RAGEngine:
                 yield from _character_stream("The local model returned an empty response.")
         except Exception as exc:  # pragma: no cover - depends on local Ollama service
             yield from _character_stream(self._fallback_answer(prepared.chunks, f"{exc.__class__.__name__}: {exc}"))
-
+    def stream_deep_research(self, workspace_id: int, chat_id: int, query: str):
+        yield {"type": "status", "message": "Retrieving corpus for Deep Read..."}
+        chunks = self.retriever.retrieve(workspace_id, query, limit=40)
+        if not chunks:
+            yield "No documents found to read."
+            return
+            
+        extracted_facts = []
+        
+        for i, chunk in enumerate(chunks, 1):
+            yield {"type": "status", "message": f"Deep reading chunk {i} of {len(chunks)}..."}
+            prompt = f"Extract any explicit claims, facts, or findings related to: '{query}' from the following text. If there is nothing relevant, output exactly 'NONE'.\n\nText:\n{chunk.text}"
+            result = self.llm.chat([{"role": "user", "content": prompt}])
+            
+            if result.content and "NONE" not in result.content.strip().upper()[:10]:
+                extracted_facts.append(f"Source [{i}]: {result.content.strip()}")
+                
+        yield {"type": "status", "message": "Synthesizing Meta-Analysis..."}
+        
+        if not extracted_facts:
+            yield "No relevant facts were found in the deep read."
+            return
+            
+        citations = _citations_from_chunks(chunks)
+        reduce_prompt = (
+            f"You are an expert researcher writing a Meta-Analysis on: '{query}'.\n"
+            "Below is a dense list of facts extracted from the corpus. "
+            "Synthesize them into a comprehensive, multi-paragraph report organized by themes. "
+            "CRITICAL: You MUST use inline bracket citations like [1] or [2] to cite the source of your claims based on the 'Source [X]' labels provided.\n\n"
+            "Extracted Facts:\n" + "\n\n".join(extracted_facts)
+        )
+        
+        yield {"type": "status", "message": "Writing final report..."}
+        for piece in self.llm.stream_chat([{"role": "system", "content": "Write a professional meta-analysis. Use markdown formatting."}, {"role": "user", "content": reduce_prompt}]):
+            yield piece
+            
     def literature_review(self, workspace_id: int, chat_id: int) -> Answer:
         documents = self.db.list_documents(workspace_id)
         if not documents:

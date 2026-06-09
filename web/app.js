@@ -278,7 +278,7 @@ function addMessage(role, content = "", citations = [], images = [], messageId =
   const copyBtn = document.createElement("button");
   copyBtn.innerHTML = "📋";
   copyBtn.title = "Copy to clipboard";
-  copyBtn.style.cssText = "position: absolute; top: 8px; right: 8px; background: transparent; border: none; cursor: pointer; opacity: 0.3; font-size: 14px; transition: opacity 0.2s;";
+  copyBtn.style.cssText = "position: absolute; bottom: 8px; right: 8px; background: transparent; border: none; cursor: pointer; opacity: 0.3; font-size: 14px; transition: opacity 0.2s;";
   copyBtn.onmouseover = () => copyBtn.style.opacity = "1";
   copyBtn.onmouseout = () => copyBtn.style.opacity = "0.3";
   copyBtn.onclick = () => {
@@ -313,6 +313,9 @@ async function sendMessage(event) {
   typeInto(assistantBody, queue, () => typing);
 
   try {
+    const isDeepResearch = document.getElementById("deepResearchToggle")?.checked || false;
+    const isDataAnalysis = document.getElementById("dataAnalystToggle")?.checked || false;
+    
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -321,6 +324,8 @@ async function sendMessage(event) {
         chat_id: state.chatId,
         image_ids: tempImageIds,
         prompt,
+        is_deep_research: isDeepResearch,
+        is_data_analysis: isDataAnalysis,
       }),
     });
     if (!response.body) throw new Error("Streaming is not available.");
@@ -593,9 +598,13 @@ async function loadImages() {
          setTimeout(() => {
            const msgEl = document.getElementById(`msg-${img.message_id}`);
            if (msgEl) {
-             msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             const doScroll = () => msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             doScroll();
+             setTimeout(doScroll, 300);
+             setTimeout(doScroll, 800);
+             
              msgEl.style.transition = 'background-color 0.5s ease';
-             msgEl.style.backgroundColor = 'var(--panel)';
+             msgEl.style.backgroundColor = 'var(--line)';
              setTimeout(() => msgEl.style.backgroundColor = 'transparent', 2000);
            }
          }, 100);
@@ -854,7 +863,13 @@ function renderInlineText(text) {
   if (lastIndex < text.length) {
     parts.push(escapeHtml(text.slice(lastIndex)));
   }
-  return parts.join("");
+  
+  let html = parts.join("");
+  // Simple bold and italic parsing
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+  return html;
 }
 
 function renderEquationBlock(source) {

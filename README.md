@@ -9,6 +9,8 @@ Because this runs entirely on your hardware, **your data remains 100% private.**
 ## ✨ Features
 
 - **100% Local Processing:** Uses `Ollama` for AI generation and `ChromaDB` for vector retrieval. No data is sent to the cloud.
+- **Deep Research Mode (Map-Reduce):** Need an exhaustive meta-analysis? Toggle "Deep Research" to kick off an autonomous background agent that reads every single chunk across all your documents, extracts highly relevant findings, and synthesizes them into a massive, heavily cited final report.
+- **Data Analyst Mode:** Upload CSV or Excel datasets and toggle this mode on to turn the AI into an Expert Data Scientist. The local Python execution environment automatically loads your datasets into pandas DataFrames, allowing the AI to instantly write and execute code, perform complex numerical analysis, and generate beautiful `matplotlib`/`seaborn` plots directly in the chat!
 - **Advanced PDF Ingestion:** Upload any PDF. If it's a scanned document without embedded text, it automatically falls back to Tesseract OCR to extract the raw images using highly optimized multithreading.
 - **Multi-Modal Vision:** Paste multiple screenshots and images directly into the chat composer. The app seamlessly integrates with local vision models (like `llava`) to answer complex questions about multiple images simultaneously.
 - **Semantic PDF Highlighting:** Ask questions about your literature and get perfectly formatted markdown citations (`[1]`, `[2]`). The backend accurately filters false citations. Clicking a citation opens the PDF side-by-side with the exact sentence the AI used brilliantly highlighted in **yellow** using a custom backend PyMuPDF engine.
@@ -16,6 +18,7 @@ Because this runs entirely on your hardware, **your data remains 100% private.**
 - **Document Comparison:** Select two papers and instantly generate a lexical comparison highlighting shared themes and distinct focus areas.
 - **Literature Reviews:** With one click, synthesize a comprehensive literature review from all documents in your current workspace.
 - **Exports:** Export your entire chat history, including AI answers and citations, cleanly to Markdown, PDF, or DOCX formats.
+- **Beautiful & Responsive UI:** Experience a highly polished, minimalist interface featuring animated CSS toggle switches, perfectly responsive chat layouts, one-click "Copy to Clipboard", and interactive plot/image viewers.
 - **Native Desktop App Mode:** Run the application as a standalone, immersive desktop window (via WebView) without needing to use a standard web browser.
 
 ---
