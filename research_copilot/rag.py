@@ -62,36 +62,29 @@ class RAGEngine:
             except Exception:
                 pass
 
-        if not chunks and not (datasets and is_data_analysis):
-            if datasets and not is_data_analysis:
-                msg = (
-                    "I see you have uploaded CSV/Excel datasets. "
-                    "To generate plots or perform numerical analysis on them, "
-                    "please toggle **Data Analyst Mode ON** below the chat."
-                )
-            else:
-                msg = (
-                    "I could not find uploaded document context for that yet. "
-                    "Add PDFs or Datasets in the Documents tab and ask again."
-                )
-            
+        if not chunks and datasets and not is_data_analysis:
             return PreparedAnswer(
                 chunks=[],
                 citations=[],
                 messages=[],
-                fallback_content=msg,
+                fallback_content=(
+                    "I see you have uploaded CSV/Excel datasets. "
+                    "To generate plots or perform numerical analysis on them, "
+                    "please toggle **Data Analyst Mode ON** below the chat."
+                ),
             )
 
         context = _format_context(chunks, self.settings.max_context_chars)
         memory = self.db.get_conversation_summary(chat_id)
 
         system_content = (
-            "You are Research Copilot, a local research assistant. Answer ONLY from the supplied Context and Knowledge Graph Facts. "
+            "You are Research Copilot, a local research assistant. "
+            "If Document Context or Knowledge Graph Facts are provided below, answer based on them heavily. "
+            "If no context is provided, act as a helpful conversational AI assistant and answer the user's general queries. "
             "CRITICAL: The Knowledge Graph Facts are explicit connections pre-extracted from the documents. Weigh them heavily when answering relational questions. "
             "CRITICAL: You MUST use proper Markdown formatting. Break your answer into logical sections using headings (e.g. ## Heading) and separate paragraphs with clear line breaks. "
-            "CRITICAL: You MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
+            "CRITICAL: If you use the Document Context, you MUST use inline bracket citations like [1] or [2] immediately after every factual claim or sentence. "
             "Do not wait until the end of the paragraph to cite. Place the bracket citation directly in the text. "
-            "If the context is insufficient, say so. "
             "For mathematics, physics, statistics, algorithms, and chemistry, explain the reasoning step by step "
             "in plain language and keep standalone formulas inside $$ ... $$ blocks. Use simple LaTeX only inside "
             "math blocks, such as \\frac{a}{b}, x_i, x^2, \\sqrt{x}, \\sum, \\int, and Greek commands. "
@@ -202,11 +195,15 @@ class RAGEngine:
             return
             
         citations = _citations_from_chunks(chunks)
+        yield {"type": "citations", "citations": citations}
+        
         reduce_prompt = (
-            f"You are an expert researcher writing a Meta-Analysis on: '{query}'.\n"
+            f"You are an expert researcher writing a highly detailed Meta-Analysis on: '{query}'.\n"
             "Below is a dense list of facts extracted from the corpus. "
-            "Synthesize them into a comprehensive, multi-paragraph report organized by themes. "
-            "CRITICAL: You MUST use inline bracket citations like [1] or [2] to cite the source of your claims based on the 'Source [X]' labels provided.\n\n"
+            "Synthesize them into a comprehensive, deeply analytical, and extremely long-form report organized by themes. "
+            "Ensure you explore nuances, methodologies, and relationships between these facts thoroughly. "
+            "CRITICAL: You MUST use inline bracket citations like [1] or [2] to cite the source of your claims based on the 'Source [X]' labels provided. "
+            "Do not output 'Source [X]', use the brackets instead.\n\n"
             "Extracted Facts:\n" + "\n\n".join(extracted_facts)
         )
         

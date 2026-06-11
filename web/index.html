@@ -20,19 +20,30 @@
         <input id="themeToggle" type="checkbox" class="toggle-switch" />
       </label>
 
-      <label class="field-label" for="workspaceSelect">Workspace</label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; margin-bottom: 6px;">
+        <label class="field-label" for="workspaceSelect" style="margin: 0;">Workspace</label>
+        <button id="editWorkspaceBtn" class="icon-btn" title="Rename Workspace" style="font-size: 12px; padding: 2px;">✏️</button>
+      </div>
       <select id="workspaceSelect"></select>
       <div class="row">
         <input id="workspaceName" placeholder="New workspace" />
         <button id="addWorkspaceBtn" title="Create workspace">+</button>
       </div>
 
-      <label class="field-label" for="chatSelect">Chat</label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; margin-bottom: 6px;">
+        <label class="field-label" for="chatSelect" style="margin: 0;">Chat</label>
+        <div style="display: flex; gap: 4px;">
+            <button id="editChatBtn" class="icon-btn" title="Rename Chat" style="font-size: 12px; padding: 2px;">✏️</button>
+            <button id="archiveChatBtn" class="icon-btn" title="Archive Chat" style="font-size: 12px; padding: 2px;">📦</button>
+            <button id="deleteChatBtn" class="icon-btn" title="Delete Chat" style="font-size: 12px; padding: 2px;">🗑️</button>
+        </div>
+      </div>
       <select id="chatSelect"></select>
       <div class="row">
         <input id="chatTitle" placeholder="New chat" />
         <button id="addChatBtn" title="Create chat">+</button>
       </div>
+      <button id="showArchivedBtn" class="secondary-btn" style="width: 100%; margin-top: 8px; font-size: 12px; padding: 4px;">📂 View Archived Chats</button>
 
       <nav class="nav">
         <button class="active" data-view="chat">Chat</button>
@@ -59,6 +70,9 @@
           </div>
           <button id="refreshMessagesBtn">Refresh</button>
         </div>
+        <div id="incognitoWarning" style="display: none; background-color: var(--danger); color: white; padding: 10px; text-align: center; font-size: 13px; font-weight: 500; border-bottom: 1px solid var(--line);">
+            🕵️ Incognito Mode Active: This chat and its documents will be permanently deleted when you close the tab or switch chats.
+        </div>
         <div id="messages" class="messages"></div>
         <div id="imagePreviewContainer" class="hidden" style="padding: 8px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--bg);">
           <div id="imagePreviewGallery" style="display: flex; gap: 8px;"></div>
@@ -76,9 +90,14 @@
                 <input type="checkbox" id="dataAnalystToggle" class="toggle-switch" />
                 Data Analyst Mode
               </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none;" title="Toggle Incognito Mode (deletes chat on close)">
+                <input type="checkbox" id="incognitoToggle" class="toggle-switch" />
+                Incognito Mode
+              </label>
             </div>
             <div style="display: flex; gap: 8px; margin-left: auto;">
               <button id="micBtn" type="button" title="Click to start/stop recording" style="padding: 6px 12px; display: flex; align-items: center; justify-content: center; font-size: 14px; border-radius: 6px;">🎤</button>
+              <button id="stopBtn" type="button" style="display: none; padding: 6px 16px; border-radius: 6px; font-size: 13px; background-color: var(--danger); color: white; border: none;">Stop</button>
               <button id="sendBtn" type="submit" style="padding: 6px 16px; border-radius: 6px; font-size: 13px;">Send</button>
             </div>
           </div>
@@ -168,6 +187,19 @@
       </div>
     </main>
 
-    <script src="/web/app.js?v=11"></script>
+    <!-- Archive Modal -->
+    <div id="archiveModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+      <div style="background: var(--bg); padding: 20px; border-radius: 8px; width: 400px; max-width: 90vw; border: 1px solid var(--line);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0;">Archived Chats</h2>
+          <button id="closeArchiveModalBtn" class="icon-btn" style="font-size: 16px;">&#10005;</button>
+        </div>
+        <div id="archiveList" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          <!-- Items injected here -->
+        </div>
+      </div>
+    </div>
+
+    <script src="/web/app.js?v=12"></script>
   </body>
 </html>

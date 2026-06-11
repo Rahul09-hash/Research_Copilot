@@ -2,8 +2,11 @@ const state = {
   workspaceId: null,
   chatId: null,
   activeView: "chat",
+  isIncognito: false,
   settings: {},
 };
+
+let currentAbortController = null;
 
 const el = (id) => document.getElementById(id);
 
@@ -19,21 +22,75 @@ function bindEvents() {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
 
-  el("workspaceSelect").addEventListener("change", async (event) => {
-    state.workspaceId = Number(event.target.value);
+  el("workspaceSelect").addEventListener("change", async (e) => {
+    state.workspaceId = e.target.value;
+    state.chatId = null;
     await loadChats();
-    await refreshActiveView();
+    refreshActiveView();
   });
+  
+  el("editWorkspaceBtn").addEventListener("click", renameWorkspace);
 
-  el("chatSelect").addEventListener("change", async (event) => {
-    state.chatId = Number(event.target.value);
-    await refreshActiveView();
+  el("chatSelect").addEventListener("change", async (e) => {
+    const prevChatId = state.chatId;
+    const wasIncognito = state.isIncognito;
+    
+    state.chatId = e.target.value;
+    
+    if (wasIncognito && prevChatId) {
+        // Self-destruct previous incognito chat when switching away
+        await api(`/api/chats/${prevChatId}`, { method: "DELETE" });
+        await loadChats();
+        refreshActiveView();
+    } else {
+        refreshActiveView();
+    }
   });
+  
+  el("editChatBtn").addEventListener("click", renameChat);
+  el("archiveChatBtn").addEventListener("click", archiveChat);
+  el("deleteChatBtn").addEventListener("click", deleteChat);
 
   el("addWorkspaceBtn").addEventListener("click", createWorkspace);
   el("addChatBtn").addEventListener("click", createChat);
+  
+  el("incognitoToggle").addEventListener("change", async (e) => {
+      if (e.target.checked) {
+          await createIncognitoChat();
+      } else {
+          const prevChatId = state.chatId;
+          const wasIncognito = state.isIncognito;
+          
+          const data = await api(`/api/chats?workspace_id=${state.workspaceId}`);
+          const normalChat = data.chats.find(c => !c.is_incognito);
+          
+          if (normalChat) {
+              state.chatId = normalChat.id;
+          } else {
+              // Note: createChat will internally call loadChats and loadMessages
+              await createChat();
+          }
+          
+          if (wasIncognito && prevChatId) {
+              await api(`/api/chats/${prevChatId}`, { method: "DELETE" });
+          }
+          await loadChats();
+          await loadMessages();
+      }
+  });
+  
+  el("showArchivedBtn").addEventListener("click", showArchivedChats);
+  el("closeArchiveModalBtn").addEventListener("click", () => {
+      el("archiveModal").style.display = "none";
+  });
+
   el("refreshMessagesBtn").addEventListener("click", loadMessages);
   el("chatForm").addEventListener("submit", sendMessage);
+  el("stopBtn").addEventListener("click", () => {
+      if (currentAbortController) {
+          currentAbortController.abort();
+      }
+  });
   el("promptInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -148,6 +205,19 @@ async function createWorkspace() {
   await loadChats();
 }
 
+async function renameWorkspace() {
+  const currentName = el("workspaceSelect").options[el("workspaceSelect").selectedIndex].text;
+  const newName = prompt("Enter new workspace name:", currentName);
+  if (!newName || newName === currentName) return;
+  
+  await api(`/api/workspaces/${state.workspaceId}`, {
+    method: "PATCH",
+    body: { name: newName }
+  });
+  const workspaces = await api("/api/workspaces");
+  renderWorkspaceOptions(workspaces.workspaces);
+}
+
 async function loadChats() {
   const data = await api(`/api/chats?workspace_id=${state.workspaceId}`);
   if (!data.chats.length) {
@@ -161,6 +231,24 @@ async function loadChats() {
   if (!data.chats.some((chat) => Number(chat.id) === Number(state.chatId))) {
     state.chatId = data.chats[0].id;
   }
+  
+  // Check if current chat is incognito
+  const currentChat = data.chats.find(c => Number(c.id) === Number(state.chatId));
+  state.isIncognito = currentChat ? !!currentChat.is_incognito : false;
+  
+  const toggle = el("incognitoToggle");
+  if (toggle) toggle.checked = state.isIncognito;
+  
+  if (state.isIncognito) {
+      el("chatSelect").style.backgroundColor = "rgba(255, 0, 0, 0.1)";
+      el("chatSelect").style.borderColor = "var(--danger)";
+      el("incognitoWarning").style.display = "block";
+  } else {
+      el("chatSelect").style.backgroundColor = "";
+      el("chatSelect").style.borderColor = "";
+      el("incognitoWarning").style.display = "none";
+  }
+  
   renderChatOptions(data.chats);
 }
 
@@ -175,6 +263,93 @@ async function createChat() {
   state.chatId = result.chat_id;
   await loadChats();
   await loadMessages();
+}
+
+async function createIncognitoChat() {
+  const result = await api("/api/chats/incognito", {
+    method: "POST",
+    body: { workspace_id: state.workspaceId },
+  });
+  state.chatId = result.chat_id;
+  state.isIncognito = true;
+  await loadChats();
+  await loadMessages();
+}
+
+async function renameChat() {
+  const currentName = el("chatSelect").options[el("chatSelect").selectedIndex].text.split(" #")[0];
+  const newName = prompt("Enter new chat title:", currentName);
+  if (!newName || newName === currentName) return;
+  
+  await api(`/api/chats/${state.chatId}`, {
+    method: "PATCH",
+    body: { title: newName }
+  });
+  await loadChats();
+}
+
+async function archiveChat() {
+  if (!confirm("Are you sure you want to archive this chat? It will be hidden from the sidebar.")) return;
+  
+  await api(`/api/chats/${state.chatId}/archive`, {
+    method: "POST"
+  });
+  
+  state.chatId = null;
+  await loadChats();
+  await loadMessages();
+}
+
+async function deleteChat() {
+  if (!confirm("Are you sure you want to permanently delete this chat? This cannot be undone.")) return;
+  
+  await api(`/api/chats/${state.chatId}`, {
+    method: "DELETE"
+  });
+  
+  state.chatId = null;
+  await loadChats();
+  await loadMessages();
+}
+
+async function showArchivedChats() {
+    const data = await api(`/api/chats/archived?workspace_id=${state.workspaceId}`);
+    const list = el("archiveList");
+    list.innerHTML = "";
+    
+    if (data.chats.length === 0) {
+        list.innerHTML = "<p style='color: var(--muted);'>No archived chats.</p>";
+    } else {
+        for (const chat of data.chats) {
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.justifyContent = "space-between";
+            row.style.alignItems = "center";
+            row.style.padding = "8px";
+            row.style.border = "1px solid var(--line)";
+            row.style.borderRadius = "4px";
+            
+            const title = document.createElement("span");
+            title.textContent = `${chat.title} #${chat.id}`;
+            row.append(title);
+            
+            const btn = document.createElement("button");
+            btn.textContent = "Unarchive";
+            btn.className = "secondary-btn";
+            btn.style.fontSize = "12px";
+            btn.style.padding = "4px 8px";
+            btn.onclick = async () => {
+                await api(`/api/chats/${chat.id}/unarchive`, { method: "POST" });
+                await loadChats();
+                el("archiveModal").style.display = "none";
+            };
+            row.append(btn);
+            
+            list.append(row);
+        }
+    }
+    
+    el("archiveModal").style.display = "flex";
 }
 
 function switchView(view) {
@@ -312,6 +487,11 @@ async function sendMessage(event) {
   let typing = true;
   typeInto(assistantBody, queue, () => typing);
 
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+  el("sendBtn").style.display = "none";
+  el("stopBtn").style.display = "block";
+
   try {
     const isDeepResearch = document.getElementById("deepResearchToggle")?.checked || false;
     const isDataAnalysis = document.getElementById("dataAnalystToggle")?.checked || false;
@@ -319,6 +499,7 @@ async function sendMessage(event) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({
         workspace_id: state.workspaceId,
         chat_id: state.chatId,
@@ -363,12 +544,19 @@ async function sendMessage(event) {
       assistantBody.parentElement.append(renderSources(donePayload.citations));
     }
   } catch (error) {
-    queue.push(...`Error: ${error.message}`.split(""));
+    if (error.name === "AbortError") {
+        queue.push(...`\n\n*[Response stopped by user]*`.split(""));
+    } else {
+        queue.push(...`Error: ${error.message}`.split(""));
+    }
     await waitForQueue(queue);
     typing = false;
     renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
   } finally {
     setBusy(false);
+    currentAbortController = null;
+    el("sendBtn").style.display = "block";
+    el("stopBtn").style.display = "none";
     await loadChats();
   }
 }
@@ -1401,3 +1589,13 @@ async function toggleRecording() {
     alert("Could not access microphone.");
   }
 }
+
+// Init
+loadSettings().then(loadApp);
+
+// Incognito Mode Cleanup on Close
+window.addEventListener("beforeunload", () => {
+    if (state.isIncognito && state.chatId) {
+        fetch(`/api/chats/${state.chatId}`, { method: 'DELETE', keepalive: true });
+    }
+});

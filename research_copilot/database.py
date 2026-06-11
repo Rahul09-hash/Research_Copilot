@@ -32,6 +32,8 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     workspace_id INTEGER NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
                     title TEXT NOT NULL,
+                    is_archived INTEGER NOT NULL DEFAULT 0,
+                    is_incognito INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -135,6 +137,8 @@ class Database:
             )
             _ensure_column(conn, "document_chunk", "line_start", "INTEGER")
             _ensure_column(conn, "document_chunk", "line_end", "INTEGER")
+            _ensure_column(conn, "chat", "is_archived", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "chat", "is_incognito", "INTEGER NOT NULL DEFAULT 0")
 
     def ensure_workspace(self, name: str) -> int:
         existing = self.get_workspace_by_name(name)
@@ -157,6 +161,11 @@ class Database:
             rows = conn.execute("SELECT * FROM workspace ORDER BY updated_at DESC, id DESC").fetchall()
             return [dict(row) for row in rows]
 
+    def rename_workspace(self, workspace_id: int, new_name: str) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE workspace SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_name, workspace_id))
+            conn.commit()
+
     def ensure_chat(self, workspace_id: int, title: str) -> int:
         chats = self.list_chats(workspace_id)
         if chats:
@@ -171,13 +180,54 @@ class Database:
             )
             return int(cursor.lastrowid)
 
+    def create_incognito_chat(self, workspace_id: int, title: str) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO chat(workspace_id, title, is_incognito) VALUES (?, ?, 1)",
+                (workspace_id, title),
+            )
+            return int(cursor.lastrowid)
+
     def list_chats(self, workspace_id: int) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM chat WHERE workspace_id = ? ORDER BY updated_at DESC, id DESC",
+                "SELECT * FROM chat WHERE workspace_id = ? AND is_archived = 0 ORDER BY updated_at DESC, id DESC",
                 (workspace_id,),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def list_archived_chats(self, workspace_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat WHERE workspace_id = ? AND is_archived = 1 ORDER BY updated_at DESC, id DESC",
+                (workspace_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def rename_chat(self, chat_id: int, new_title: str) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE chat SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_title, chat_id))
+            conn.commit()
+
+    def archive_chat(self, chat_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE chat SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (chat_id,))
+            conn.commit()
+
+    def unarchive_chat(self, chat_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE chat SET is_archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (chat_id,))
+            conn.commit()
+
+    def delete_chat(self, chat_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM chat WHERE id = ?", (chat_id,))
+            conn.commit()
+
+    def get_chat(self, chat_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM chat WHERE id = ?", (chat_id,)).fetchone()
+            return dict(row) if row else None
 
     def add_message(self, chat_id: int, role: str, content: str, citations: list[dict[str, Any]] | None = None) -> int:
         citations_json = json.dumps(citations or [], ensure_ascii=True)
@@ -270,6 +320,21 @@ class Database:
                 (workspace_id, sha256),
             ).fetchone()
             return dict(row) if row else None
+
+    def get_document(self, document_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM document WHERE id = ?", (document_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_documents_by_chat(self, chat_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM document WHERE chat_id = ?", (chat_id,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_document(self, document_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM document WHERE id = ?", (document_id,))
+            conn.commit()
 
     def list_documents(self, workspace_id: int) -> list[dict[str, Any]]:
         with self.connect() as conn:

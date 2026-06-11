@@ -1,100 +1,89 @@
 # Research Copilot
 
-Research Copilot is a powerful, fully-local Retrieval-Augmented Generation (RAG) application designed specifically for researchers, students, and academics. It allows you to upload large collections of PDFs, perform high-speed Optical Character Recognition (OCR), extract chemical and mathematical formulas, and interact with the text using a fully local AI engine.
+Research Copilot is a local Retrieval-Augmented Generation (RAG) architecture designed for academic literature and dataset analysis. It supports PDF ingestion, Optical Character Recognition (OCR) pipeline fallback, vision-model integrations, and local LLM orchestration. 
 
-Because this runs entirely on your hardware, **your data remains 100% private.**
-
----
-
-## ✨ Features
-
-- **100% Local Processing:** Uses `Ollama` for AI generation and `ChromaDB` for vector retrieval. No data is sent to the cloud.
-- **Deep Research Mode (Map-Reduce):** Need an exhaustive meta-analysis? Toggle "Deep Research" to kick off an autonomous background agent that reads every single chunk across all your documents, extracts highly relevant findings, and synthesizes them into a massive, heavily cited final report.
-- **Data Analyst Mode:** Upload CSV or Excel datasets and toggle this mode on to turn the AI into an Expert Data Scientist. The local Python execution environment automatically loads your datasets into pandas DataFrames, allowing the AI to instantly write and execute code, perform complex numerical analysis, and generate beautiful `matplotlib`/`seaborn` plots directly in the chat!
-- **Advanced PDF Ingestion:** Upload any PDF. If it's a scanned document without embedded text, it automatically falls back to Tesseract OCR to extract the raw images using highly optimized multithreading.
-- **Multi-Modal Vision:** Paste multiple screenshots and images directly into the chat composer. The app seamlessly integrates with local vision models (like `llava`) to answer complex questions about multiple images simultaneously.
-- **Semantic PDF Highlighting:** Ask questions about your literature and get perfectly formatted markdown citations (`[1]`, `[2]`). The backend accurately filters false citations. Clicking a citation opens the PDF side-by-side with the exact sentence the AI used brilliantly highlighted in **yellow** using a custom backend PyMuPDF engine.
-- **Knowledge Graphs & GraphRAG:** Automatically generates interactive visual relationship graphs of the most important concepts spanning across your entire workspace. The RAG engine actively queries these explicit connections during chat to provide heavily grounded, multi-hop reasoning. *(Note: The `co_occurs` label indicates two entities are frequently mentioned together without a strict causal relationship).*
-- **Document Comparison:** Select two papers and instantly generate a lexical comparison highlighting shared themes and distinct focus areas.
-- **Literature Reviews:** With one click, synthesize a comprehensive literature review from all documents in your current workspace.
-- **Exports:** Export your entire chat history, including AI answers and citations, cleanly to Markdown, PDF, or DOCX formats.
-- **Beautiful & Responsive UI:** Experience a highly polished, minimalist interface featuring animated CSS toggle switches, perfectly responsive chat layouts, one-click "Copy to Clipboard", and interactive plot/image viewers.
-- **Native Desktop App Mode:** Run the application as a standalone, immersive desktop window (via WebView) without needing to use a standard web browser.
+All processing is executed on-premise, ensuring data privacy and local hardware utilization.
 
 ---
 
-## 🛠️ Prerequisites
+## Capabilities & Architecture
 
-To run this application, you need the following installed on your machine:
+- **Local Processing Pipeline:** Integrates `Ollama` for local LLM inference and `ChromaDB` for vector similarity search. Operations are strictly local; no external API calls are made for embedding or generation.
+- **Deep Research (Map-Reduce):** Implements an autonomous background agent utilizing a Map-Reduce architecture. It iterates over document chunks to extract context-specific findings, synthesizing them into a comprehensive, cited markdown report.
+- **Data Analyst Mode:** Supports ingestion of `.csv` and `.xlsx` datasets. The system instantiates a local Python execution environment, pre-loading data into pandas `DataFrames`. The LLM can generate Python scripts for numerical analysis and matplotlib/seaborn plotting. Code execution and stdout/plot capture are handled automatically.
+- **PDF Ingestion & Fallback OCR:** Extracts text from PDFs using `PyMuPDF`. Implements a fallback mechanism to `Tesseract OCR` for scanned documents lacking a native text layer, utilizing multithreaded image extraction and processing.
+- **Multi-Modal Vision Integration:** Supports image array payloads in the chat composer. Integrates with local vision models (e.g., `llava`) for joint visual-linguistic query resolution.
+- **Semantic Highlighting:** Generates deterministic markdown citations (e.g., `[1]`). The backend maps these citations to exact line numbers and bounding boxes, rendering semantic highlights over the original PDF bytes via a PyMuPDF highlighting engine.
+- **Knowledge Graphs & GraphRAG:** Extracts entities and relationships during ingestion to construct an interconnected PyVis/NetworkX knowledge graph. The retrieval pipeline queries these graph edges to inject explicit multi-hop relational context into the prompt schema.
+- **Document Comparison:** Generates lexical and semantic comparisons between two documents, outlining overlapping and disjoint context spaces.
+- **Literature Review Synthesis:** Triggers a batch summarization job across the active workspace, outputting a synthesized review.
+- **Export Formats:** Serializes chat history, citations, and images to Markdown, PDF, and DOCX formats.
+- **User Interface:** Implemented in vanilla JS/HTML/CSS. Features responsive flexbox layouts, CSS-based state toggles, clipboard integration, and asynchronous DOM updates.
+- **Native Desktop Mode:** Wraps the FastAPI backend in a `pywebview` container to execute as a standalone desktop application.
 
-1. **Python 3.10+**: Make sure Python is in your system PATH.
-2. **Ollama**: Download and install [Ollama](https://ollama.com/) to run the local LLM.
-   - Once installed, open your terminal and pull a fast model (e.g., Llama 3) and a vision model (e.g., LLaVA) if you plan to paste images:
+---
+
+## Prerequisites
+
+1. **Python 3.10+**: Must be present in the system PATH.
+2. **Ollama**: Required for local LLM and embedding processes.
+   - Recommended setup for text and vision capabilities:
      ```bash
      ollama run llama3:8b-instruct
      ollama pull llava
      ```
-3. **Tesseract OCR (Optional but highly recommended)**: Required for reading "scanned" PDFs that lack a native text layer.
-   - **Windows:** Download the installer from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). The app will automatically detect it if installed in `C:\Program Files\Tesseract-OCR`.
+3. **Tesseract OCR (Optional):** Required for OCR fallback on scanned PDFs.
+   - **Windows:** Download from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). The application checks `C:\Program Files\Tesseract-OCR` by default.
 
 ---
 
-## 🚀 Installation
+## Installation
 
-1. **Clone or Download** this repository to your local machine.
-2. **Open a terminal** in the project directory.
-3. **Create a virtual environment** (recommended):
+1. Clone or download the repository.
+2. Initialize a virtual environment:
    ```bash
    python -m venv .venv
    ```
-4. **Activate the virtual environment**:
-   - On Windows:
-     ```bash
-     .venv\Scripts\activate
-     ```
-   - On Mac/Linux:
-     ```bash
-     source .venv/bin/activate
-     ```
-5. **Install the required Python packages**:
+3. Activate the environment:
+   - Windows: `.venv\Scripts\activate`
+   - Unix/MacOS: `source .venv/bin/activate`
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
 ---
 
-## 🖥️ How to Run
+## Execution
 
-You have two options for running Research Copilot:
-
-### Option A: Standard Web Server (Browser Mode)
-Run the FastAPI backend directly. This is great for active development or if you prefer using Chrome/Edge.
-
+### Option A: Standard Web Server
+Execute the FastAPI server directly.
 ```bash
 python fast_app.py
 ```
-*Then, open your web browser and navigate to `http://localhost:8502`*
+Navigate to `http://localhost:8502` via a web browser.
 
 ### Option B: Native Desktop Application
-Run the app in a standalone, immersive desktop window using `pywebview`. It behaves exactly like a native Windows application.
-
+Execute the desktop wrapper.
 ```bash
 python desktop_app.py
 ```
-*A new desktop window will automatically launch and connect to the local server.*
+This spawns a `pywebview` window bound to the local server.
 
 ---
 
-## ⚙️ Architecture
+## System Stack
 
 * **Backend:** FastAPI (Python)
-* **Frontend:** Vanilla JS / HTML / CSS (No heavy JS frameworks, blazingly fast)
-* **Vector Database:** ChromaDB
-* **Embeddings:** `sentence-transformers` (runs locally)
-* **LLM Engine:** Ollama API
-* **Graphing Engine:** PyVis / NetworkX
+* **Frontend:** Vanilla JavaScript, HTML, CSS
+* **Vector Store:** ChromaDB
+* **Embeddings:** `sentence-transformers`
+* **Inference Engine:** Ollama API
+* **Graphing Engine:** PyVis, NetworkX
+* **PDF Processing:** PyMuPDF (fitz)
+* **Framework Design:** Entirely custom-built from scratch. No bloated abstraction frameworks (e.g., LangChain, LlamaIndex) are utilized, ensuring maximum performance, transparent prompt management, and minimal dependency overhead.
 
-## 💡 Troubleshooting
+## Troubleshooting
 
-* **"LLM did not answer" Timeout**: This usually occurs when you try to run a model that is too heavy for your computer's RAM/VRAM. Try pulling a smaller model like `phi3:mini` or `qwen2:1.5b-instruct` and using that instead.
-* **Tesseract Not Found**: Ensure you installed the 64-bit Windows version of Tesseract. The code looks for it in `C:\Program Files\Tesseract-OCR\tessdata`. If you installed it elsewhere, add a `TESSDATA_PREFIX` System Environment Variable pointing to your `tessdata` folder.
+* **Inference Timeout:** Occurs when hardware constraints (RAM/VRAM) are exceeded by model size. Fall back to smaller quantized models (e.g., `phi3:mini`, `qwen2:1.5b-instruct`).
+* **Tesseract Not Found:** Verify the 64-bit installation path. If not installed in `C:\Program Files\Tesseract-OCR\tessdata`, define a `TESSDATA_PREFIX` system environment variable pointing to the correct `tessdata` directory.

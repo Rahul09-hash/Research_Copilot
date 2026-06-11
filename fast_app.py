@@ -60,6 +60,25 @@ async def health(_request: Request) -> JSONResponse:
 async def bootstrap(_request: Request) -> JSONResponse:
     services = get_services()
     db = services.db
+    
+    # Clean up orphaned incognito chats on startup
+    with db.connect() as conn:
+        orphans = conn.execute("SELECT id FROM chat WHERE is_incognito = 1").fetchall()
+        for row in orphans:
+            chat_id = row["id"]
+            docs = db.get_documents_by_chat(chat_id)
+            for doc in docs:
+                doc_id = doc["id"]
+                chunks = db.get_chunks_for_document(doc_id)
+                if chunks:
+                    chunk_ids = [str(c["id"]) for c in chunks]
+                    services.vector_store.delete(chunk_ids)
+                path = Path(doc["file_path"])
+                if path.exists():
+                    path.unlink(missing_ok=True)
+                db.delete_document(doc_id)
+            db.delete_chat(chat_id)
+            
     workspace_id = db.ensure_workspace("Default Workspace")
     chat_id = db.ensure_chat(workspace_id, "Research Chat")
     return JSONResponse(
@@ -92,8 +111,15 @@ async def create_workspace(request: Request) -> JSONResponse:
 
 
 async def list_chats(request: Request) -> JSONResponse:
-    workspace_id = int(request.query_params.get("workspace_id", "0"))
-    chats = await run_in_threadpool(get_services().db.list_chats, workspace_id)
+    services = get_services()
+    workspace_id = int(request.query_params.get("workspace_id") or 0)
+    chats = await run_in_threadpool(services.db.list_chats, workspace_id)
+    return JSONResponse({"chats": chats})
+
+async def list_archived_chats(request: Request) -> JSONResponse:
+    services = get_services()
+    workspace_id = int(request.query_params.get("workspace_id") or 0)
+    chats = await run_in_threadpool(services.db.list_archived_chats, workspace_id)
     return JSONResponse({"chats": chats})
 
 
@@ -148,6 +174,65 @@ async def create_chat(request: Request) -> JSONResponse:
     chat_id = await run_in_threadpool(get_services().db.create_chat, workspace_id, title)
     return JSONResponse({"chat_id": chat_id})
 
+async def create_incognito_chat(request: Request) -> JSONResponse:
+    payload = await request.json()
+    workspace_id = int(payload.get("workspace_id") or 0)
+    title = str(payload.get("title") or "Incognito Chat").strip() or "Incognito Chat"
+    chat_id = await run_in_threadpool(get_services().db.create_incognito_chat, workspace_id, title)
+    return JSONResponse({"chat_id": chat_id})
+
+async def update_workspace(request: Request) -> JSONResponse:
+    services = get_services()
+    workspace_id = int(request.path_params["workspace_id"])
+    payload = await request.json()
+    if "name" in payload:
+        services.db.rename_workspace(workspace_id, payload["name"])
+    return JSONResponse({"status": "success"})
+
+async def update_chat(request: Request) -> JSONResponse:
+    services = get_services()
+    chat_id = int(request.path_params["chat_id"])
+    payload = await request.json()
+    if "title" in payload:
+        services.db.rename_chat(chat_id, payload["title"])
+    return JSONResponse({"status": "success"})
+
+async def archive_chat(request: Request) -> JSONResponse:
+    services = get_services()
+    chat_id = int(request.path_params["chat_id"])
+    services.db.archive_chat(chat_id)
+    return JSONResponse({"status": "success"})
+
+async def unarchive_chat(request: Request) -> JSONResponse:
+    services = get_services()
+    chat_id = int(request.path_params["chat_id"])
+    services.db.unarchive_chat(chat_id)
+    return JSONResponse({"status": "success"})
+
+async def delete_chat(request: Request) -> JSONResponse:
+    services = get_services()
+    chat_id = int(request.path_params["chat_id"])
+    
+    # 1. Clean up documents tied to this chat (mostly for incognito chats)
+    docs = services.db.get_documents_by_chat(chat_id)
+    for doc in docs:
+        doc_id = doc["id"]
+        # Remove from vector store
+        chunks = services.db.get_chunks_for_document(doc_id)
+        if chunks:
+            chunk_ids = [str(c["id"]) for c in chunks]
+            services.vector_store.delete(chunk_ids)
+        # Delete from disk
+        path = Path(doc["file_path"])
+        if path.exists():
+            path.unlink(missing_ok=True)
+        # Delete from DB
+        services.db.delete_document(doc_id)
+        
+    # 2. Delete the chat itself
+    services.db.delete_chat(chat_id)
+    return JSONResponse({"status": "success"})
+
 
 async def messages(request: Request) -> JSONResponse:
     services = get_services()
@@ -188,9 +273,13 @@ async def stream_chat(request: Request) -> StreamingResponse:
         
         if is_deep_research:
             chunks: list[str] = []
+            citations = []
             for piece in services.rag.stream_deep_research(workspace_id, chat_id, prompt):
                 if isinstance(piece, dict):
-                    yield json_line(piece)
+                    if piece.get("type") == "citations":
+                        citations = piece.get("citations", [])
+                    else:
+                        yield json_line(piece)
                 else:
                     chunks.append(piece)
                     yield json_line({"type": "delta", "text": piece})
@@ -199,9 +288,17 @@ async def stream_chat(request: Request) -> StreamingResponse:
             # Remove any hallucinated python code blocks
             content = re.sub(r'```python\n(.*?)(?:```|$)', '', content, flags=re.DOTALL).strip()
             
-            message_id = services.db.add_message(chat_id, "assistant", content, [])
+            # Filter citations
+            used_numbers = set()
+            for bracket_match in re.finditer(r'\[(.*?)\]', content):
+                inner_text = bracket_match.group(1)
+                for num_match in re.finditer(r'\d+', inner_text):
+                    used_numbers.add(int(num_match.group(0)))
+            filtered_citations = [c for c in citations if c["number"] in used_numbers]
+            
+            message_id = services.db.add_message(chat_id, "assistant", content, filtered_citations)
             services.db.update_conversation_summary(chat_id)
-            yield json_line({"type": "done", "content": content, "citations": []})
+            yield json_line({"type": "done", "content": content, "citations": filtered_citations})
             return
 
         yield json_line({"type": "status", "message": "Retrieving local sources..."})
@@ -214,6 +311,7 @@ async def stream_chat(request: Request) -> StreamingResponse:
         content = "".join(chunks)
         code_blocks = re.findall(r'```python\n(.*?)```', content, re.DOTALL)
             
+        generated_image_ids = []
         if code_blocks:
             yield json_line({"type": "status", "message": "Executing Data Analysis..."})
             code = "\n".join(code_blocks)
@@ -374,9 +472,10 @@ async def document_highlight(request: Request) -> Response | JSONResponse:
         import re
         clean_text = re.sub(r'\s+', ' ', chunk["text"]).strip()
         
-        # 1. Try to search the whole cleaned text
-        rects = page.search_for(clean_text)
+        # 1. Try to search the exact raw extracted text
+        rects = page.search_for(chunk["text"], quads=True)
         found_any = False
+        
         if rects:
             for rect in rects:
                 annot = page.add_highlight_annot(rect)
@@ -384,10 +483,19 @@ async def document_highlight(request: Request) -> Response | JSONResponse:
             found_any = True
             
         if not found_any:
+            # 1.5 Try the cleaned text
+            rects = page.search_for(clean_text, quads=True)
+            if rects:
+                for rect in rects:
+                    annot = page.add_highlight_annot(rect)
+                    if annot: annot.update()
+                found_any = True
+                
+        if not found_any:
             # 2. Try by sentences
-            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 20]
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 10]
             for sentence in sentences:
-                s_rects = page.search_for(sentence)
+                s_rects = page.search_for(sentence, quads=True)
                 if s_rects:
                     found_any = True
                     for rect in s_rects:
@@ -395,17 +503,17 @@ async def document_highlight(request: Request) -> Response | JSONResponse:
                         if annot: annot.update()
                         
         if not found_any:
-            # 3. Fallback to 8-word sliding window to avoid random short highlights
+            # 3. Fallback to 5-word sliding window to avoid random short highlights
             words = clean_text.split()
-            if len(words) > 8:
-                for i in range(0, len(words) - 7, 5):
-                    phrase = " ".join(words[i:i+8])
-                    p_rects = page.search_for(phrase)
+            if len(words) > 5:
+                for i in range(0, len(words) - 4, 3):
+                    phrase = " ".join(words[i:i+5])
+                    p_rects = page.search_for(phrase, quads=True)
                     for rect in p_rects:
                         annot = page.add_highlight_annot(rect)
                         if annot: annot.update()
             else:
-                for rect in page.search_for(clean_text):
+                for rect in page.search_for(clean_text, quads=True):
                     annot = page.add_highlight_annot(rect)
                     if annot: annot.update()
 
@@ -637,8 +745,15 @@ routes = [
     Route("/api/bootstrap", bootstrap),
     Route("/api/workspaces", list_workspaces, methods=["GET"]),
     Route("/api/workspaces", create_workspace, methods=["POST"]),
+    Route("/api/workspaces/{workspace_id:int}", update_workspace, methods=["PATCH"]),
     Route("/api/chats", list_chats, methods=["GET"]),
+    Route("/api/chats/archived", list_archived_chats, methods=["GET"]),
     Route("/api/chats", create_chat, methods=["POST"]),
+    Route("/api/chats/incognito", create_incognito_chat, methods=["POST"]),
+    Route("/api/chats/{chat_id:int}", update_chat, methods=["PATCH"]),
+    Route("/api/chats/{chat_id:int}/archive", archive_chat, methods=["POST"]),
+    Route("/api/chats/{chat_id:int}/unarchive", unarchive_chat, methods=["POST"]),
+    Route("/api/chats/{chat_id:int}", delete_chat, methods=["DELETE"]),
     Route("/api/models", list_models, methods=["GET"]),
     Route("/api/models/select", select_model, methods=["POST"]),
     Route("/api/messages", messages, methods=["GET"]),
