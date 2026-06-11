@@ -60,7 +60,16 @@ async def health(_request: Request) -> JSONResponse:
 async def bootstrap(_request: Request) -> JSONResponse:
     services = get_services()
     db = services.db
-    
+    # Run migrations for message variants
+    with db.connect() as conn:
+        try:
+            conn.execute("SELECT group_id FROM message LIMIT 1")
+        except Exception:
+            conn.execute("ALTER TABLE message ADD COLUMN group_id TEXT")
+            conn.execute("ALTER TABLE message ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+            conn.execute("UPDATE message SET group_id = CAST(id AS TEXT) WHERE group_id IS NULL")
+            conn.commit()
+
     # Clean up orphaned incognito chats on startup
     with db.connect() as conn:
         orphans = conn.execute("SELECT id FROM chat WHERE is_incognito = 1").fetchall()
@@ -239,7 +248,7 @@ async def messages(request: Request) -> JSONResponse:
     chat_id = int(request.query_params.get("chat_id", "0"))
     limit = int(request.query_params.get("limit", str(services.settings.chat_history_limit)))
     total = await run_in_threadpool(services.db.count_messages, chat_id)
-    recent = await run_in_threadpool(services.db.get_recent_messages, chat_id, limit)
+    recent = await run_in_threadpool(services.db.get_messages, chat_id)
     return JSONResponse({"messages": recent, "total": total, "limit": limit})
 
 
@@ -252,14 +261,90 @@ async def stream_chat(request: Request) -> StreamingResponse:
     prompt = str(payload.get("prompt") or "").strip()
     is_deep_research = payload.get("is_deep_research", False)
     is_data_analysis = payload.get("is_data_analysis", False)
+
+    return _generate_response_stream(services, workspace_id, chat_id, image_ids, prompt, is_deep_research, is_data_analysis)
+
+async def retry_chat(request: Request) -> StreamingResponse:
+    payload = await request.json()
+    services = get_services()
+    message_id = int(payload.get("message_id") or 0)
+    is_deep_research = payload.get("is_deep_research", False)
+    is_data_analysis = payload.get("is_data_analysis", False)
+
+    # Fetch the assistant message to retry
+    msg = await run_in_threadpool(services.db.get_message, message_id)
+    if not msg or msg["role"] != "assistant":
+        raise Exception("Invalid message ID for retry")
+
+    workspace_id = int(payload.get("workspace_id") or 0)
+    chat_id = msg["chat_id"]
+    group_id = msg.get("group_id")
+
+    # Get the preceding user message
+    user_msg = await run_in_threadpool(services.db.get_previous_active_user_message, chat_id, message_id)
+    prompt = user_msg["content"] if user_msg else ""
+    image_ids = [img["id"] for img in user_msg.get("images", [])] if user_msg else []
+
+    # Deactivate current group to make way for the new variant
+    if group_id:
+        await run_in_threadpool(services.db.set_message_active, message_id) 
+
+    return _generate_response_stream(services, workspace_id, chat_id, image_ids, prompt, is_deep_research, is_data_analysis, group_id=group_id, skip_user_message=True)
+
+async def edit_chat(request: Request) -> StreamingResponse:
+    payload = await request.json()
+    services = get_services()
+    message_id = int(payload.get("message_id") or 0)
+    prompt = str(payload.get("prompt") or "").strip()
+    is_deep_research = payload.get("is_deep_research", False)
+    is_data_analysis = payload.get("is_data_analysis", False)
+
+    # Fetch the user message to edit
+    user_msg = await run_in_threadpool(services.db.get_message, message_id)
+    if not user_msg or user_msg["role"] != "user":
+        raise Exception("Invalid message ID for edit")
+
+    workspace_id = int(payload.get("workspace_id") or 0)
+    chat_id = user_msg["chat_id"]
+    user_group_id = user_msg.get("group_id") or str(message_id)
+
+    # Fetch the assistant message that immediately follows this user message
+    # so we know which group to put the new assistant response in.
+    next_assistant_msg = await run_in_threadpool(services.db.get_next_active_assistant_message, chat_id, message_id)
+    assistant_group_id = next_assistant_msg.get("group_id") if next_assistant_msg else None
+
+    # Deactivate current user variant, then add the new one
+    await run_in_threadpool(services.db.set_message_active, message_id)
+    new_user_msg_id = await run_in_threadpool(services.db.add_message, chat_id, "user", prompt, [], user_group_id)
+    await run_in_threadpool(services.db.set_message_active, new_user_msg_id)
+
+    # We also deactivate the current assistant variant so the newly generated one becomes active naturally
+    if next_assistant_msg:
+        await run_in_threadpool(services.db.set_message_active, next_assistant_msg["id"])
+
+    # We don't reuse the images from the old prompt for now, unless we want to?
+    image_ids = [img["id"] for img in user_msg.get("images", [])]
+
+    # Generate the new assistant response as a variant in the assistant group
+    return _generate_response_stream(services, workspace_id, chat_id, image_ids, prompt, is_deep_research, is_data_analysis, group_id=assistant_group_id, skip_user_message=True)
+
+async def activate_message(request: Request) -> JSONResponse:
+    services = get_services()
+    message_id = int(request.path_params["message_id"])
+    await run_in_threadpool(services.db.set_message_active, message_id)
+    return JSONResponse({"status": "success"})
+
+
+def _generate_response_stream(services, workspace_id: int, chat_id: int, image_ids: list, prompt: str, is_deep_research: bool, is_data_analysis: bool, group_id: str = None, skip_user_message: bool = False) -> StreamingResponse:
     if not prompt and not image_ids:
         return StreamingResponse(iter([json_line({"type": "error", "message": "Prompt or image is required."})]))
 
     def generate():
-        user_message_id = services.db.add_message(chat_id, "user", prompt)
-        if image_ids:
-            for i_id in image_ids:
-                services.db.link_image_to_message(i_id, user_message_id)
+        if not skip_user_message:
+            user_message_id = services.db.add_message(chat_id, "user", prompt)
+            if image_ids:
+                for i_id in image_ids:
+                    services.db.link_image_to_message(i_id, user_message_id)
         
         b64_images = []
         if image_ids:
@@ -406,7 +491,10 @@ async def stream_chat(request: Request) -> StreamingResponse:
                 
         filtered_citations = [c for c in prepared.citations if c["number"] in used_numbers]
         
-        message_id = services.db.add_message(chat_id, "assistant", content, filtered_citations)
+        message_id = services.db.add_message(chat_id, "assistant", content, filtered_citations, group_id=group_id)
+        # Ensure it's active
+        services.db.set_message_active(message_id)
+
         if generated_image_ids:
             for i_id in generated_image_ids:
                 services.db.link_image_to_message(i_id, message_id)
@@ -757,7 +845,10 @@ routes = [
     Route("/api/models", list_models, methods=["GET"]),
     Route("/api/models/select", select_model, methods=["POST"]),
     Route("/api/messages", messages, methods=["GET"]),
+    Route("/api/messages/{message_id:int}/activate", activate_message, methods=["POST"]),
     Route("/api/chat", stream_chat, methods=["POST"]),
+    Route("/api/chat/retry", retry_chat, methods=["POST"]),
+    Route("/api/chat/edit", edit_chat, methods=["POST"]),
     Route("/api/documents", documents, methods=["GET"]),
     Route("/api/documents/{document_id:int}/pdf", document_pdf, methods=["GET"]),
     Route("/api/documents/{document_id:int}/highlight/{chunk_id:int}", document_highlight, methods=["GET"]),

@@ -44,6 +44,8 @@ class Database:
                     role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
                     content TEXT NOT NULL,
                     citations_json TEXT NOT NULL DEFAULT '[]',
+                    group_id TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -229,15 +231,18 @@ class Database:
             row = conn.execute("SELECT * FROM chat WHERE id = ?", (chat_id,)).fetchone()
             return dict(row) if row else None
 
-    def add_message(self, chat_id: int, role: str, content: str, citations: list[dict[str, Any]] | None = None) -> int:
+    def add_message(self, chat_id: int, role: str, content: str, citations: list[dict[str, Any]] | None = None, group_id: str | None = None) -> int:
         citations_json = json.dumps(citations or [], ensure_ascii=True)
         with self.connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO message(chat_id, role, content, citations_json) VALUES (?, ?, ?, ?)",
-                (chat_id, role, content, citations_json),
+                "INSERT INTO message(chat_id, role, content, citations_json, group_id) VALUES (?, ?, ?, ?, ?)",
+                (chat_id, role, content, citations_json, group_id),
             )
+            msg_id = int(cursor.lastrowid)
+            if not group_id:
+                conn.execute("UPDATE message SET group_id = ? WHERE id = ?", (str(msg_id), msg_id))
             conn.execute("UPDATE chat SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (chat_id,))
-            return int(cursor.lastrowid)
+            return msg_id
 
     def get_messages(self, chat_id: int) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -256,7 +261,7 @@ class Database:
             rows = conn.execute(
                 """
                 SELECT * FROM message
-                WHERE chat_id = ?
+                WHERE chat_id = ? AND is_active = 1
                 ORDER BY id DESC
                 LIMIT ?
                 """,
@@ -267,6 +272,60 @@ class Database:
                 img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
                 msg["images"] = [dict(r) for r in img_rows]
         return messages
+
+    def get_message(self, message_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM message WHERE id = ?", (message_id,)).fetchone()
+            if row:
+                msg = dict(row)
+                img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
+                msg["images"] = [dict(r) for r in img_rows]
+                return msg
+            return None
+
+    def get_previous_active_user_message(self, chat_id: int, before_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM message 
+                WHERE chat_id = ? AND role = 'user' AND is_active = 1 AND id < ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (chat_id, before_id)
+            ).fetchone()
+            if row:
+                msg = dict(row)
+                img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
+                msg["images"] = [dict(r) for r in img_rows]
+                return msg
+            return None
+
+    def get_next_active_assistant_message(self, chat_id: int, after_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM message 
+                WHERE chat_id = ? AND role = 'assistant' AND is_active = 1 AND id > ?
+                ORDER BY id ASC LIMIT 1
+                """,
+                (chat_id, after_id)
+            ).fetchone()
+            if row:
+                msg = dict(row)
+                img_rows = conn.execute("SELECT id, file_name FROM image WHERE message_id = ?", (msg["id"],)).fetchall()
+                msg["images"] = [dict(r) for r in img_rows]
+                return msg
+            return None
+
+    def set_message_active(self, message_id: int) -> None:
+        with self.connect() as conn:
+            # Get group_id
+            row = conn.execute("SELECT group_id FROM message WHERE id = ?", (message_id,)).fetchone()
+            if row and row["group_id"]:
+                group_id = row["group_id"]
+                conn.execute("UPDATE message SET is_active = 0 WHERE group_id = ?", (group_id,))
+                conn.execute("UPDATE message SET is_active = 1 WHERE id = ?", (message_id,))
+                conn.commit()
 
     def count_messages(self, chat_id: int) -> int:
         with self.connect() as conn:

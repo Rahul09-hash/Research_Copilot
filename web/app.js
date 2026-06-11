@@ -413,13 +413,54 @@ async function loadMessages() {
   el("chatHint").textContent = hidden
     ? `Showing the latest ${data.messages.length} messages. ${hidden} older messages are stored.`
     : "Ask questions grounded in uploaded PDFs.";
+
+  // Group messages by group_id
+  const groups = new Map();
+  const order = [];
   for (const message of data.messages) {
-    addMessage(message.role, message.content, message.citations || [], message.images || [], message.id);
+    const gid = message.group_id || String(message.id);
+    if (!groups.has(gid)) {
+      groups.set(gid, []);
+      order.push(gid);
+    }
+    groups.get(gid).push(message);
+  }
+
+  let lastAssistantIndex = -1;
+  for (let i = order.length - 1; i >= 0; i--) {
+    const group = groups.get(order[i]);
+    if (group && group.length > 0 && group[0].role === "assistant") {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+
+  for (let i = 0; i < order.length; i++) {
+    const gid = order[i];
+    const group = groups.get(gid);
+    const activeIndex = group.findIndex(m => m.is_active === 1);
+    const idx = activeIndex >= 0 ? activeIndex : group.length - 1;
+    const message = group[idx];
+    
+    const isLastAssistant = (i === lastAssistantIndex);
+    
+    addMessage(
+      message.role, 
+      message.content, 
+      message.citations || [], 
+      message.images || [], 
+      message.id,
+      {
+        variants: group,
+        currentIndex: idx,
+        isLastAssistant
+      }
+    );
   }
   scrollMessages();
 }
 
-function addMessage(role, content = "", citations = [], images = [], messageId = null) {
+function addMessage(role, content = "", citations = [], images = [], messageId = null, variantData = null) {
   const item = document.createElement("article");
   item.className = `message ${role}`;
   if (messageId) {
@@ -451,19 +492,71 @@ function addMessage(role, content = "", citations = [], images = [], messageId =
   
   item.style.position = "relative";
   const copyBtn = document.createElement("button");
+  copyBtn.className = "action-btn copy-btn";
   copyBtn.innerHTML = "📋";
   copyBtn.title = "Copy to clipboard";
-  copyBtn.style.cssText = "position: absolute; bottom: 8px; right: 8px; background: transparent; border: none; cursor: pointer; opacity: 0.3; font-size: 14px; transition: opacity 0.2s;";
-  copyBtn.onmouseover = () => copyBtn.style.opacity = "1";
-  copyBtn.onmouseout = () => copyBtn.style.opacity = "0.3";
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(textBody.dataset.rawText || textBody.textContent || content);
     copyBtn.innerHTML = "✅";
     setTimeout(() => copyBtn.innerHTML = "📋", 2000);
   };
   
-  item.append(label, copyBtn, body);
+  item.append(label, body);
   if (citations.length) item.append(renderSources(citations));
+  
+  const actionsBar = document.createElement("div");
+  actionsBar.className = "message-actions";
+  
+  if (variantData) {
+      if (variantData.isLastAssistant) {
+          const retryBtn = document.createElement("button");
+          retryBtn.className = "action-btn retry-btn";
+          retryBtn.innerHTML = "↺";
+          retryBtn.title = "Retry";
+          retryBtn.onclick = () => retryMessage(messageId);
+          actionsBar.append(retryBtn);
+      }
+      
+      if (role === "user") {
+          const editBtn = document.createElement("button");
+          editBtn.className = "action-btn edit-btn";
+          editBtn.innerHTML = "✎";
+          editBtn.title = "Edit";
+          editBtn.onclick = () => editMessage(messageId, textBody, item);
+          actionsBar.append(editBtn);
+      }
+  }
+  
+  actionsBar.append(copyBtn);
+  item.append(actionsBar);
+  
+  if (variantData && variantData.variants && variantData.variants.length > 1) {
+          const footer = document.createElement("div");
+          footer.style.display = "flex";
+          footer.style.justifyContent = "space-between";
+          footer.style.alignItems = "center";
+          
+          const navContainer = document.createElement("div");
+          navContainer.className = "variant-nav";
+          
+          const prevBtn = document.createElement("button");
+          prevBtn.innerHTML = "&lsaquo;";
+          prevBtn.disabled = variantData.currentIndex === 0;
+          prevBtn.onclick = () => switchVariant(variantData.variants[variantData.currentIndex - 1].id);
+          
+          const nextBtn = document.createElement("button");
+          nextBtn.innerHTML = "&rsaquo;";
+          nextBtn.disabled = variantData.currentIndex === variantData.variants.length - 1;
+          nextBtn.onclick = () => switchVariant(variantData.variants[variantData.currentIndex + 1].id);
+          
+          const labelSpan = document.createElement("span");
+          labelSpan.textContent = `${variantData.currentIndex + 1} / ${variantData.variants.length}`;
+          
+          navContainer.append(prevBtn, labelSpan, nextBtn);
+          footer.append(navContainer);
+          item.append(footer);
+      }
+  
   el("messages").append(item);
   scrollMessages();
   return textBody;
@@ -557,7 +650,230 @@ async function sendMessage(event) {
     currentAbortController = null;
     el("sendBtn").style.display = "block";
     el("stopBtn").style.display = "none";
-    await loadChats();
+    await loadMessages();
+  }
+}
+
+async function editMessage(messageId, textBody, item) {
+  const originalText = textBody.dataset.rawText || textBody.textContent;
+  
+  // Create editor UI
+  const editorDiv = document.createElement("div");
+  editorDiv.style.marginTop = "8px";
+  
+  const textarea = document.createElement("textarea");
+  textarea.value = originalText;
+  textarea.style.width = "100%";
+  textarea.style.minHeight = "80px";
+  textarea.style.padding = "8px";
+  textarea.style.marginBottom = "8px";
+  textarea.style.fontFamily = "inherit";
+  
+  const actionsDiv = document.createElement("div");
+  actionsDiv.style.display = "flex";
+  actionsDiv.style.gap = "8px";
+  actionsDiv.style.justifyContent = "flex-end";
+  
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => {
+    editorDiv.remove();
+    textBody.style.display = "block";
+    // Show buttons again
+    Array.from(item.querySelectorAll(".edit-btn, .copy-btn")).forEach(b => b.style.display = "");
+  };
+  
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save & Submit";
+  saveBtn.style.background = "var(--accent)";
+  saveBtn.style.color = "var(--panel)";
+  saveBtn.onclick = async () => {
+    const newText = textarea.value.trim();
+    if (!newText || newText === originalText) {
+      cancelBtn.onclick();
+      return;
+    }
+    await submitEdit(messageId, newText);
+  };
+  
+  actionsDiv.append(cancelBtn, saveBtn);
+  editorDiv.append(textarea, actionsDiv);
+  
+  // Hide the original text and buttons
+  textBody.style.display = "none";
+  Array.from(item.querySelectorAll(".edit-btn, .copy-btn")).forEach(b => b.style.display = "none");
+  
+  textBody.parentElement.insertBefore(editorDiv, textBody.nextSibling);
+  textarea.focus();
+}
+
+async function submitEdit(messageId, newPrompt) {
+  setBusy(true);
+  const queue = [];
+  
+  // Add a temporary assistant block below to stream into
+  const assistantBody = addMessage("assistant", "");
+  let typing = true;
+  typeInto(assistantBody, queue, () => typing);
+
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+  el("sendBtn").style.display = "none";
+  el("stopBtn").style.display = "block";
+
+  try {
+    const isDeepResearch = document.getElementById("deepResearchToggle")?.checked || false;
+    const isDataAnalysis = document.getElementById("dataAnalystToggle")?.checked || false;
+    
+    const response = await fetch("/api/chat/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+        workspace_id: state.workspaceId,
+        message_id: messageId,
+        prompt: newPrompt,
+        is_deep_research: isDeepResearch,
+        is_data_analysis: isDataAnalysis,
+      }),
+    });
+    
+    if (!response.body) throw new Error("Streaming is not available.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let donePayload = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const eventData = JSON.parse(line);
+        if (eventData.type === "delta") queue.push(...eventData.text.split(""));
+        if (eventData.type === "done") donePayload = eventData;
+        if (eventData.type === "error") queue.push(...eventData.message.split(""));
+      }
+    }
+
+    await waitForQueue(queue);
+    typing = false;
+    
+    if (donePayload && donePayload.content) {
+      renderRichText(assistantBody, donePayload.content);
+    } else {
+      renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+    }
+    
+    if (donePayload?.citations?.length) {
+      assistantBody.parentElement.append(renderSources(donePayload.citations));
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+        queue.push(...`\n\n*[Response stopped by user]*`.split(""));
+    } else {
+        queue.push(...`Error: ${error.message}`.split(""));
+    }
+    await waitForQueue(queue);
+    typing = false;
+    renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+  } finally {
+    setBusy(false);
+    currentAbortController = null;
+    el("sendBtn").style.display = "block";
+    el("stopBtn").style.display = "none";
+    await loadMessages();
+  }
+}
+
+async function switchVariant(messageId) {
+    try {
+        await api(`/api/messages/${messageId}/activate`, { method: "POST" });
+        await loadMessages();
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+async function retryMessage(messageId) {
+  setBusy(true);
+  const assistantBody = addMessage("assistant", "");
+  const queue = [];
+  let typing = true;
+  typeInto(assistantBody, queue, () => typing);
+
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+  el("sendBtn").style.display = "none";
+  el("stopBtn").style.display = "block";
+
+  try {
+    const isDeepResearch = document.getElementById("deepResearchToggle")?.checked || false;
+    const isDataAnalysis = document.getElementById("dataAnalystToggle")?.checked || false;
+    
+    const response = await fetch("/api/chat/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+        workspace_id: state.workspaceId,
+        message_id: messageId,
+        is_deep_research: isDeepResearch,
+        is_data_analysis: isDataAnalysis,
+      }),
+    });
+    
+    if (!response.body) throw new Error("Streaming is not available.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let donePayload = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const eventData = JSON.parse(line);
+        if (eventData.type === "delta") queue.push(...eventData.text.split(""));
+        if (eventData.type === "done") donePayload = eventData;
+        if (eventData.type === "error") queue.push(...eventData.message.split(""));
+      }
+    }
+
+    await waitForQueue(queue);
+    typing = false;
+    
+    if (donePayload && donePayload.content) {
+      renderRichText(assistantBody, donePayload.content);
+    } else {
+      renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+    }
+    
+    if (donePayload?.citations?.length) {
+      assistantBody.parentElement.append(renderSources(donePayload.citations));
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+        queue.push(...`\n\n*[Response stopped by user]*`.split(""));
+    } else {
+        queue.push(...`Error: ${error.message}`.split(""));
+    }
+    await waitForQueue(queue);
+    typing = false;
+    renderRichText(assistantBody, assistantBody.dataset.rawText || assistantBody.textContent);
+  } finally {
+    setBusy(false);
+    currentAbortController = null;
+    el("sendBtn").style.display = "block";
+    el("stopBtn").style.display = "none";
+    await loadMessages();
   }
 }
 
@@ -1435,7 +1751,7 @@ async function api(path, options = {}) {
 
 function setBusy(isBusy) {
   document.querySelectorAll("button").forEach((button) => {
-    if (button.id !== "refreshMessagesBtn") button.disabled = isBusy;
+    if (button.id !== "refreshMessagesBtn" && button.id !== "stopBtn") button.disabled = isBusy;
   });
 }
 
