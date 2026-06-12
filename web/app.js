@@ -174,6 +174,7 @@ function bindEvents() {
   });
   el("promptInput").addEventListener("paste", handlePaste);
   el("pdfInput").addEventListener("change", uploadFiles);
+  el("folderInput").addEventListener("change", uploadFiles);
   el("noteForm").addEventListener("submit", saveNote);
   el("regenerateGraphBtn").addEventListener("click", () => loadGraph(true));
   el("literatureBtn").addEventListener("click", generateLiteratureReview);
@@ -1118,8 +1119,20 @@ async function deleteDocument(documentId) {
 async function uploadFiles(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
+  
+  const allowedExtensions = ['.pdf', '.csv', '.xlsx'];
+  const validFiles = files.filter(file => {
+      const name = file.name.toLowerCase();
+      return allowedExtensions.some(ext => name.endsWith(ext));
+  });
+
+  if (!validFiles.length) {
+      el("uploadStatus").textContent = "No valid files found (.pdf, .csv, .xlsx).";
+      return;
+  }
+
   setBusy(true);
-  for (const file of files) {
+  for (const file of validFiles) {
     el("uploadStatus").textContent = `Uploading ${file.name}...`;
     const form = new FormData();
     form.append("workspace_id", state.workspaceId);

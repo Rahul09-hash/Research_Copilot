@@ -120,10 +120,16 @@
             <h2>Documents</h2>
             <p>Upload PDFs or Datasets (CSV/Excel) for local retrieval and analysis.</p>
           </div>
-          <label class="file-btn">
-            Upload Data
-            <input id="pdfInput" type="file" accept=".pdf,.csv,.xlsx" multiple />
-          </label>
+          <div style="display: flex; gap: 8px;">
+            <label class="file-btn">
+              Upload Files
+              <input id="pdfInput" type="file" accept=".pdf,.csv,.xlsx" multiple />
+            </label>
+            <label class="file-btn">
+              Upload Folder
+              <input id="folderInput" type="file" webkitdirectory directory multiple />
+            </label>
+          </div>
         </div>
         <div id="uploadStatus" class="muted"></div>
         <div id="documentsList" class="list"></div>
