@@ -675,7 +675,7 @@ textarea:focus {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .button-grid {
@@ -781,7 +781,7 @@ textarea:focus {
 }
 
 #pdfViewerPanel.hidden {
-  display: none;
+  display: none !important;
 }
 
 .pdf-header {
@@ -887,5 +887,3 @@ textarea:focus {
     break-inside: avoid;
   }
 }
-
-

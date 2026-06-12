@@ -24,7 +24,8 @@ if __name__ == '__main__':
         url='http://127.0.0.1:8502', 
         width=1280, 
         height=850,
-        min_size=(800, 600)
+        min_size=(800, 600),
+        text_select=True
     )
     
     # 4. Start the desktop window event loop (this blocks until you close the app)

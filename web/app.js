@@ -205,6 +205,76 @@ function bindEvents() {
       body: JSON.stringify({ enabled: isEnabled })
     });
   });
+
+  const messagesContainer = el("messages");
+  const quoteBtn = el("quoteTooltipBtn");
+  let currentSelectionText = "";
+
+  function handleSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      if (quoteBtn.style.opacity !== "0") {
+        quoteBtn.style.opacity = "0";
+        quoteBtn.style.pointerEvents = "none";
+      }
+      currentSelectionText = "";
+      return;
+    }
+
+    if (messagesContainer.contains(selection.anchorNode)) {
+      currentSelectionText = selection.toString().trim();
+      
+      if (currentSelectionText.length > 0) {
+        if (quoteBtn.style.opacity !== "1") {
+          quoteBtn.style.opacity = "1";
+          quoteBtn.style.pointerEvents = "auto";
+        }
+      } else {
+        if (quoteBtn.style.opacity !== "0") {
+          quoteBtn.style.opacity = "0";
+          quoteBtn.style.pointerEvents = "none";
+        }
+      }
+    } else {
+      if (quoteBtn.style.opacity !== "0") {
+        quoteBtn.style.opacity = "0";
+        quoteBtn.style.pointerEvents = "none";
+      }
+      currentSelectionText = "";
+    }
+  }
+
+  document.addEventListener("mouseup", handleSelection);
+  document.addEventListener("keyup", handleSelection);
+  
+  // Clear selection if they click outside and collapse it
+  document.addEventListener("mousedown", (e) => {
+    if (e.target !== quoteBtn && !quoteBtn.contains(e.target)) {
+       // Let native selection clear happen first, then evaluate
+       setTimeout(handleSelection, 10);
+    }
+  });
+
+  window.clearQuotePreview = function() {
+    window.activeQuote = null;
+    el("quotePreviewContainer").classList.add("hidden");
+    el("quotePreviewText").textContent = "";
+  };
+
+  quoteBtn.addEventListener("click", () => {
+    if (currentSelectionText) {
+      window.activeQuote = currentSelectionText;
+      el("quotePreviewText").textContent = currentSelectionText;
+      el("quotePreviewContainer").classList.remove("hidden");
+      
+      quoteBtn.style.opacity = "0";
+      quoteBtn.style.pointerEvents = "none";
+      window.getSelection().removeAllRanges();
+      
+      const promptInput = el("promptInput");
+      promptInput.focus();
+    }
+  });
 }
 
 async function bootstrap() {
@@ -650,7 +720,14 @@ function addMessage(role, content = "", citations = [], images = [], messageId =
 async function sendMessage(event) {
   event.preventDefault();
   const input = el("promptInput");
-  const prompt = input.value.trim();
+  let prompt = input.value.trim();
+  
+  if (window.activeQuote) {
+    const formattedQuote = `> ${window.activeQuote.replace(/\n/g, '\n> ')}`;
+    prompt = prompt ? `${formattedQuote}\n\n${prompt}` : formattedQuote;
+    clearQuotePreview();
+  }
+  
   if (!prompt && !currentImageIds.length) return;
   input.value = "";
   setBusy(true);

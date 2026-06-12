@@ -42,7 +42,10 @@ def json_line(payload: dict[str, Any]) -> bytes:
 
 
 async def home(_request: Request) -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(
+        WEB_DIR / "index.html", 
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
 
 
 async def health(_request: Request) -> JSONResponse:
