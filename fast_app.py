@@ -183,6 +183,13 @@ async def select_model(request: Request) -> JSONResponse:
         object.__setattr__(services.rag.llm, "model", new_model)
     return JSONResponse({"status": "success", "active": services.rag.llm.model})
 
+async def select_reranker(request: Request) -> JSONResponse:
+    services = get_services()
+    payload = await request.json()
+    enabled = bool(payload.get("enabled"))
+    object.__setattr__(services.settings, "reranker_enabled", enabled)
+    return JSONResponse({"status": "success", "reranker_enabled": services.settings.reranker_enabled})
+
 
 async def create_chat(request: Request) -> JSONResponse:
     payload = await request.json()
@@ -853,6 +860,7 @@ routes = [
     Route("/api/chats/{chat_id:int}", delete_chat, methods=["DELETE"]),
     Route("/api/models", list_models, methods=["GET"]),
     Route("/api/models/select", select_model, methods=["POST"]),
+    Route("/api/config/reranker", select_reranker, methods=["POST"]),
     Route("/api/messages", messages, methods=["GET"]),
     Route("/api/messages/{message_id:int}/activate", activate_message, methods=["POST"]),
     Route("/api/chat", stream_chat, methods=["POST"]),

@@ -99,15 +99,11 @@ textarea:focus {
 }
 
 .sidebar {
-  width: 250px;
+  height: 100vh;
+  overflow: auto;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100vh;
-  box-sizing: border-box;
+  padding: 18px;
 }
 
 .search-input-container {

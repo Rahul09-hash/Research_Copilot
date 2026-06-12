@@ -189,10 +189,19 @@ function bindEvents() {
 
   el("modelSelect").addEventListener("change", async (e) => {
     const newModel = e.target.value;
-    await fetch("/api/models/select", {
+    await fetch("/api/config/model", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: newModel })
+    });
+  });
+
+  el("rerankerToggle").addEventListener("change", async (e) => {
+    const isEnabled = e.target.checked;
+    await fetch("/api/config/reranker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: isEnabled })
     });
   });
 }
@@ -201,7 +210,7 @@ async function bootstrap() {
   try {
     const config = await api("/api/bootstrap");
     el("embeddingStatus").textContent = config.settings.embedding;
-    el("rerankerStatus").textContent = config.settings.reranker ? "on" : "off";
+    el("rerankerToggle").checked = !!config.settings.reranker;
 
     // Load available models
     try {
