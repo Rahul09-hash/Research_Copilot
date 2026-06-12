@@ -231,6 +231,21 @@ class Database:
             row = conn.execute("SELECT * FROM chat WHERE id = ?", (chat_id,)).fetchone()
             return dict(row) if row else None
 
+    def search_chats(self, query: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT c.id, c.workspace_id, c.title, c.is_archived, c.is_incognito, w.name as workspace_name
+                FROM chat c
+                JOIN workspace w ON c.workspace_id = w.id
+                WHERE c.title LIKE ? AND c.is_incognito = 0
+                ORDER BY c.updated_at DESC
+                LIMIT 50
+                """,
+                (f"%{query}%",),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def add_message(self, chat_id: int, role: str, content: str, citations: list[dict[str, Any]] | None = None, group_id: str | None = None) -> int:
         citations_json = json.dumps(citations or [], ensure_ascii=True)
         with self.connect() as conn:

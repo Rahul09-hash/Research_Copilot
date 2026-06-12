@@ -22,6 +22,81 @@ function bindEvents() {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
 
+  const searchInput = el("chatSearchInput");
+  const searchResults = el("chatSearchResults");
+  let searchTimeout = null;
+
+  searchInput.addEventListener("input", (e) => {
+    clearTimeout(searchTimeout);
+    const query = e.target.value.trim();
+    
+    if (!query) {
+      searchResults.style.display = "none";
+      return;
+    }
+
+    searchTimeout = setTimeout(async () => {
+      try {
+        const data = await api(`/api/chats/search?q=${encodeURIComponent(query)}`);
+        searchResults.innerHTML = "";
+        
+        if (data.chats.length === 0) {
+          searchResults.innerHTML = '<div class="search-result-item" style="color: var(--muted); cursor: default;">No chats found</div>';
+        } else {
+          for (const chat of data.chats) {
+            const item = document.createElement("div");
+            item.className = "search-result-item";
+            
+            const title = document.createElement("div");
+            title.textContent = chat.title;
+            
+            const workspace = document.createElement("div");
+            workspace.className = "search-result-workspace";
+            workspace.textContent = chat.workspace_name;
+            
+            item.append(title, workspace);
+            item.addEventListener("click", async () => {
+              searchInput.value = "";
+              searchResults.style.display = "none";
+              
+              const wasIncognito = state.isIncognito;
+              const prevChatId = state.chatId;
+              
+              state.workspaceId = chat.workspace_id;
+              state.chatId = chat.id;
+              
+              if (wasIncognito && prevChatId) {
+                await api(`/api/chats/${prevChatId}`, { method: "DELETE" });
+              }
+              
+              // Update Workspace select visually without triggering its onChange
+              const wsSelect = el("workspaceSelect");
+              for (let i = 0; i < wsSelect.options.length; i++) {
+                if (Number(wsSelect.options[i].value) === Number(chat.workspace_id)) {
+                  wsSelect.selectedIndex = i;
+                  break;
+                }
+              }
+              
+              await loadChats();
+              refreshActiveView();
+            });
+            searchResults.append(item);
+          }
+        }
+        searchResults.style.display = "block";
+      } catch (err) {
+        console.error("Chat search failed", err);
+      }
+    }, 300);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+      searchResults.style.display = "none";
+    }
+  });
+
   el("workspaceSelect").addEventListener("change", async (e) => {
     state.workspaceId = e.target.value;
     state.chatId = null;

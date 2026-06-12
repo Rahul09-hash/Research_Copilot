@@ -125,6 +125,14 @@ async def list_chats(request: Request) -> JSONResponse:
     chats = await run_in_threadpool(services.db.list_chats, workspace_id)
     return JSONResponse({"chats": chats})
 
+async def search_chats(request: Request) -> JSONResponse:
+    services = get_services()
+    query = request.query_params.get("q", "").strip()
+    if not query:
+        return JSONResponse({"chats": []})
+    chats = await run_in_threadpool(services.db.search_chats, query)
+    return JSONResponse({"chats": chats})
+
 async def list_archived_chats(request: Request) -> JSONResponse:
     services = get_services()
     workspace_id = int(request.query_params.get("workspace_id") or 0)
@@ -835,6 +843,7 @@ routes = [
     Route("/api/workspaces", create_workspace, methods=["POST"]),
     Route("/api/workspaces/{workspace_id:int}", update_workspace, methods=["PATCH"]),
     Route("/api/chats", list_chats, methods=["GET"]),
+    Route("/api/chats/search", search_chats, methods=["GET"]),
     Route("/api/chats/archived", list_archived_chats, methods=["GET"]),
     Route("/api/chats", create_chat, methods=["POST"]),
     Route("/api/chats/incognito", create_incognito_chat, methods=["POST"]),
